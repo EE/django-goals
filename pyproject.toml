@@ -1,0 +1,49 @@
+[tool.poetry]
+name = "django-goals"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+license = "MIT"
+packages = [
+    { include = "django_goals" },
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+django = ">=4.2"
+django-object-actions = {url = "https://github.com/EE/django-object-actions/archive/adab5895f72b3d139323c35e2af6aa9acc3e7d4e.zip"}
+
+
+[tool.poetry.group.dev.dependencies]
+pytest-django = "*"
+factory-boy = "*"
+flake8 = "*"
+flake8-isort = "*"
+flake8-pyproject = "*"
+django-environ = "*"
+psycopg = "*"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "example_project.settings"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
+FAIL_INVALID_TEMPLATE_VARS = true
+addopts = "--reuse-db"
+
+[tool.flake8]
+ignore = [
+    "E501",  # line too long
+    "W504",  # line break after binary operator
+]
+
+[tool.isort]
+skip_gitignore = true
+lines_after_imports = 2
+# 5 = Hanging Grid Grouped
+multi_line_output = 5
+include_trailing_comma = true
