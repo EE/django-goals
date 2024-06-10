@@ -1,17 +1,17 @@
 import factory
 
-from .models import Task
+from .models import Goal
 
 
-class TaskFactory(factory.django.DjangoModelFactory):
+class GoalFactory(factory.django.DjangoModelFactory):
     class Meta:
-        model = Task
+        model = Goal
         skip_postgeneration_save = True
 
     @factory.post_generation
-    def precondition_tasks(self, create, extracted, **kwargs):
+    def precondition_goals(self, create, extracted, **kwargs):
         if not create:
             return
 
         if extracted:
-            self.precondition_tasks.set(extracted)
+            self.precondition_goals.set(extracted)

@@ -13,53 +13,52 @@ from django.utils.translation import gettext_lazy as _
 logger = logging.getLogger(__name__)
 
 
-class TaskState(models.TextChoices):
-    # Task is explicitly marked not to be executed
+class GoalState(models.TextChoices):
+    # Goal is explicitly marked not to be pursued
     BLOCKED = 'blocked'
-    # Task cannot be executed yet, because it is allowed to go only after future date
+    # Goal cannot be pursued yet, because it is allowed only after future date
     WAITING_FOR_DATE = 'waiting_for_date'
-    # Task cannot be executed yet, because it is waiting for other tasks to be completed
+    # Goal cannot be pursued yet, because other goals need to be achieved first
     WAITING_FOR_PRECONDITIONS = 'waiting_for_preconditions'
-    # Task is ready to be executed
+    # Goal is ready to be pursued. We are waiting for a worker to pick it up
     WAITING_FOR_WORKER = 'waiting_for_worker'
-    # Successfully executed
-    DONE = 'done'
-    # Too many failed attempts to execute the task
+    # The goal has been achieved
+    ACHIEVED = 'achieved'
+    # Too many failed attempts when pursuing the goal
     GIVEN_UP = 'given_up'
-
-    # transaction error happened during task execution, so we cant even properly store failure
+    # transaction error happened during execution, so we cant even properly store failure
     CORRUPTED = 'corrupted'
-
-    # task is waiting on a precondition that is blocked or failed
+    # Goal is waiting on a precondition that wont be achieved
     NOT_GOING_TO_HAPPEN_SOON = 'not_going_to_happen_soon'
 
 
-class Task(models.Model):
+class Goal(models.Model):
     """
-    Task is one-off unit of executing instructions.
+    Goal represents a state we want to achieve.
+    Goal will be pursued by calling a handler function.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     state = models.CharField(
         max_length=30,
         db_index=True,
-        choices=TaskState.choices,
-        default=TaskState.WAITING_FOR_DATE,
+        choices=GoalState.choices,
+        default=GoalState.WAITING_FOR_DATE,
     )
-    task_type = models.CharField(max_length=100)
+    handler = models.CharField(max_length=100)
     instructions = models.JSONField(null=True)
     precondition_date = models.DateTimeField(
         default=timezone.now,
         help_text=_(
-            'Task will not be executed before this date. '
-            'Also used as priority for tasks that are waiting for worker - '
-            'tasks with earlier date will be preferred.'
+            'Goal will not be pursued before this date. '
+            'Also used as priority for goals that are waiting for worker - '
+            'goals with earlier date will be preferred.'
         ),
     )
-    precondition_tasks = models.ManyToManyField(
+    precondition_goals = models.ManyToManyField(
         to='self',
         symmetrical=False,
-        related_name='dependent_tasks',
-        through='TaskDependency',
+        related_name='dependent_goals',
+        through='GoalDependency',
         blank=True,
     )
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
@@ -69,65 +68,73 @@ class Task(models.Model):
         indexes = [
             models.Index(
                 fields=['precondition_date'],
-                condition=models.Q(state=TaskState.WAITING_FOR_DATE),
-                name='tasks_waiting_for_date_idx',
+                condition=models.Q(state=GoalState.WAITING_FOR_DATE),
+                name='goals_waiting_for_date_idx',
             ),
             models.Index(
                 fields=['precondition_date'],
-                condition=models.Q(state=TaskState.WAITING_FOR_WORKER),
-                name='tasks_waiting_for_worker_idx',
+                condition=models.Q(state=GoalState.WAITING_FOR_WORKER),
+                name='goals_waiting_for_worker_idx',
             ),
         ]
 
     def block(self):
-        if self.state not in (TaskState.WAITING_FOR_DATE, TaskState.WAITING_FOR_PRECONDITIONS):
-            raise ValueError(f'Cannot block task in state {self.state}')
-        self.state = TaskState.BLOCKED
+        if self.state not in (GoalState.WAITING_FOR_DATE, GoalState.WAITING_FOR_PRECONDITIONS):
+            raise ValueError(f'Cannot block goal in state {self.state}')
+        self.state = GoalState.BLOCKED
         self.save(update_fields=['state'])
 
     def unblock(self):
-        if self.state != TaskState.BLOCKED:
-            raise ValueError('Task is not blocked')
-        self.state = TaskState.WAITING_FOR_DATE
+        if self.state != GoalState.BLOCKED:
+            raise ValueError(f'Cannot unblock goal in state {self.state}')
+        self.state = GoalState.WAITING_FOR_DATE
         self.save(update_fields=['state'])
-        Task.objects.filter(
-            id__in=get_dependent_task_ids([self.id]),
-            state=TaskState.NOT_GOING_TO_HAPPEN_SOON,
-        ).update(state=TaskState.WAITING_FOR_DATE)
+        Goal.objects.filter(
+            id__in=get_dependent_goal_ids([self.id]),
+            state=GoalState.NOT_GOING_TO_HAPPEN_SOON,
+        ).update(state=GoalState.WAITING_FOR_DATE)
 
     def retry(self):
-        if self.state not in (TaskState.GIVEN_UP, TaskState.CORRUPTED):
-            raise ValueError(f'Cannot retry task in state {self.state}')
-        self.state = TaskState.WAITING_FOR_DATE
+        if self.state not in (GoalState.GIVEN_UP, GoalState.CORRUPTED):
+            raise ValueError(f'Cannot retry goal in state {self.state}')
+        self.state = GoalState.WAITING_FOR_DATE
         self.save(update_fields=['state'])
-        dependent_task_ids = get_dependent_task_ids([self.id])
-        Task.objects.filter(
-            id__in=dependent_task_ids,
-            state=TaskState.NOT_GOING_TO_HAPPEN_SOON,
-        ).update(state=TaskState.WAITING_FOR_DATE)
-        return dependent_task_ids
+        dependent_goal_ids = get_dependent_goal_ids([self.id])
+        Goal.objects.filter(
+            id__in=dependent_goal_ids,
+            state=GoalState.NOT_GOING_TO_HAPPEN_SOON,
+        ).update(state=GoalState.WAITING_FOR_DATE)
+        return dependent_goal_ids
 
 
-class TaskDependency(models.Model):
+class GoalDependency(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    dependent_task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='dependencies')
-    precondition_task = models.ForeignKey(Task, on_delete=models.PROTECT, related_name='dependents')
+    dependent_goal = models.ForeignKey(
+        to=Goal,
+        on_delete=models.CASCADE,
+        related_name='dependencies',
+    )
+    precondition_goal = models.ForeignKey(
+        to=Goal,
+        on_delete=models.PROTECT,
+        related_name='dependents',
+    )
 
     class Meta:
         unique_together = (
-            ('dependent_task', 'precondition_task'),
+            ('dependent_goal', 'precondition_goal'),
         )
 
 
-class TaskExecution(models.Model):
+class GoalProgress(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='executions')
+    goal = models.ForeignKey(Goal, on_delete=models.CASCADE, related_name='progress')
     success = models.BooleanField()
     created_at = models.DateTimeField(default=timezone.now)
     time_taken = models.DurationField(null=True)
 
     class Meta:
-        ordering = ('task', '-created_at')
+        ordering = ('goal', '-created_at')
 
 
 def worker(stop_event):
@@ -144,14 +151,14 @@ def worker(stop_event):
 
 def worker_turn(now):
     transitions_done = 0
-    transitions_done += handle_waiting_for_date_tasks(now)
-    transitions_done += handle_waiting_for_preconditions_tasks()
+    transitions_done += handle_waiting_for_date(now)
+    transitions_done += handle_waiting_for_preconditions()
     while True:
         try:
-            did_a_thing = handle_waiting_for_worker_tasks(now)
+            did_a_thing = handle_waiting_for_worker(now)
         except Exception as e:  # pylint: disable=broad-except
             logger.exception('Worker failed')
-            _handle_corrupted_task(e)
+            _handle_corrupted_progress(e)
             did_a_thing = True
         if not did_a_thing:
             break
@@ -159,113 +166,113 @@ def worker_turn(now):
     return transitions_done
 
 
-def _handle_corrupted_task(exc):
-    # retrieve task from the traceback and mark it as corrupted
+def _handle_corrupted_progress(exc):
+    # retrieve goal from the traceback and mark it as corrupted
     traceback = exc.__traceback__
     while traceback is not None:
         frame = traceback.tb_frame
-        if frame.f_code.co_name == 'handle_waiting_for_worker_tasks':
+        if frame.f_code.co_name == 'handle_waiting_for_worker':
             break
         traceback = traceback.tb_next
-    task = frame.f_locals['task']
-    Task.objects.filter(id=task.id).update(state=TaskState.CORRUPTED)
+    goal = frame.f_locals['goal']
+    Goal.objects.filter(id=goal.id).update(state=GoalState.CORRUPTED)
 
 
-def handle_waiting_for_date_tasks(now):
-    return Task.objects.filter(
-        state=TaskState.WAITING_FOR_DATE,
+def handle_waiting_for_date(now):
+    return Goal.objects.filter(
+        state=GoalState.WAITING_FOR_DATE,
         precondition_date__lte=now,
-    ).update(state=TaskState.WAITING_FOR_PRECONDITIONS)
+    ).update(state=GoalState.WAITING_FOR_PRECONDITIONS)
 
 
-def handle_waiting_for_preconditions_tasks():
+def handle_waiting_for_preconditions():
     transitions_done = 0
 
-    transitions_done += Task.objects.filter(
-        state=TaskState.WAITING_FOR_PRECONDITIONS,
+    transitions_done += Goal.objects.filter(
+        state=GoalState.WAITING_FOR_PRECONDITIONS,
     ).annotate(
-        num_preconditions=models.Count('precondition_tasks'),
-        num_done_preconditions=models.Count('precondition_tasks', filter=models.Q(
-            precondition_tasks__state=TaskState.DONE,
+        num_preconditions=models.Count('precondition_goals'),
+        num_achieved_preconditions=models.Count('precondition_goals', filter=models.Q(
+            precondition_goals__state=GoalState.ACHIEVED,
         )),
     ).filter(
-        num_preconditions=models.F('num_done_preconditions'),
-    ).update(state=TaskState.WAITING_FOR_WORKER)
+        num_preconditions=models.F('num_achieved_preconditions'),
+    ).update(state=GoalState.WAITING_FOR_WORKER)
 
-    # if a task is waiting for preconditions that are not going to happen soon, it's not going to happen soon either
-    transitions_done += Task.objects.filter(
-        state=TaskState.WAITING_FOR_PRECONDITIONS,
-        precondition_tasks__state__in=(
-            TaskState.BLOCKED,
-            TaskState.GIVEN_UP,
-            TaskState.CORRUPTED,
-            TaskState.NOT_GOING_TO_HAPPEN_SOON,
+    # if a goal is waiting for preconditions that are not going to happen soon, it's not going to happen soon either
+    transitions_done += Goal.objects.filter(
+        state=GoalState.WAITING_FOR_PRECONDITIONS,
+        precondition_goals__state__in=(
+            GoalState.BLOCKED,
+            GoalState.GIVEN_UP,
+            GoalState.CORRUPTED,
+            GoalState.NOT_GOING_TO_HAPPEN_SOON,
         ),
-    ).update(state=TaskState.NOT_GOING_TO_HAPPEN_SOON)
+    ).update(state=GoalState.NOT_GOING_TO_HAPPEN_SOON)
 
     return transitions_done
 
 
 @transaction.atomic
-def handle_waiting_for_worker_tasks(now):
-    task = Task.objects.filter(state=TaskState.WAITING_FOR_WORKER).order_by(
+def handle_waiting_for_worker(now):
+    goal = Goal.objects.filter(state=GoalState.WAITING_FOR_WORKER).order_by(
         'precondition_date',
     ).select_for_update(skip_locked=True).first()
-    if task is None:
+    if goal is None:
         # nothing to do
         return False
 
-    logger.info('Just about to execute task %s: %s', task.id, task.task_type)
+    logger.info('Just about to pursue goal %s: %s', goal.id, goal.handler)
     start_time = time.monotonic()
     try:
-        ret = follow_instructions(task)
+        ret = follow_instructions(goal)
 
     except Exception:  # pylint: disable=broad-except
-        logger.exception('Task %s failed', task.id)
+        logger.exception('Goal %s failed', goal.id)
         success = False
-        failure_index = task.executions.filter(success=False).count()
+        failure_index = goal.progress.filter(success=False).count()
         retry_delay = get_retry_delay(failure_index)
         if retry_delay is None:
-            task.state = TaskState.GIVEN_UP
+            goal.state = GoalState.GIVEN_UP
         else:
-            task.state = TaskState.WAITING_FOR_DATE
-            task.precondition_date = now + retry_delay
+            goal.state = GoalState.WAITING_FOR_DATE
+            goal.precondition_date = now + retry_delay
 
     else:
         if isinstance(ret, RetryMeLater):
-            logger.info('Task %s needs to be retried later', task.id)
+            logger.info('Goal %s needs to be retried later', goal.id)
             success = True
-            task.state = TaskState.WAITING_FOR_DATE
-            # move scheduled time forward to avoid starving other tasks, in the case this one wants to be retried often
-            task.precondition_date = now
-            task.precondition_tasks.add(*ret.precondition_tasks)
+            goal.state = GoalState.WAITING_FOR_DATE
+            # move scheduled time forward to avoid starving other goals, in the case this one wants to be retried often
+            goal.precondition_date = now
+            goal.precondition_goals.add(*ret.precondition_goals)
 
         elif isinstance(ret, AllDone):
-            logger.info('Task %s is done', task.id)
+            logger.info('Goal %s was achieved', goal.id)
             success = True
-            task.state = TaskState.DONE
+            goal.state = GoalState.ACHIEVED
 
         else:
-            logger.warning('Task %s returned a value, which is ignored', task.id)
+            logger.warning('Goal %s handler returned unknown value, which is ignored', goal.id)
             success = True
-            task.state = TaskState.DONE
+            goal.state = GoalState.ACHIEVED
 
     time_taken = time.monotonic() - start_time
 
-    TaskExecution.objects.create(
-        task=task,
+    GoalProgress.objects.create(
+        goal=goal,
         success=success,
         created_at=now,
         time_taken=datetime.timedelta(seconds=time_taken),
     )
-    task.save(update_fields=['state', 'created_at', 'precondition_date'])
+    goal.save(update_fields=['state', 'created_at', 'precondition_date'])
     return True
 
 
-def follow_instructions(task):
-    func = import_string(task.task_type)
-    instructions = task.instructions
-    return func(task, *instructions['args'], **instructions['kwargs'])
+def follow_instructions(goal):
+    func = import_string(goal.handler)
+    instructions = goal.instructions
+    return func(goal, *instructions['args'], **instructions['kwargs'])
 
 
 def get_retry_delay(failure_index):
@@ -279,8 +286,8 @@ class RetryMeLater:
     """
     Like a process yielding in operating system.
     """
-    def __init__(self, precondition_tasks=()):
-        self.precondition_tasks = precondition_tasks
+    def __init__(self, precondition_goals=()):
+        self.precondition_goals = precondition_goals
 
 
 class AllDone:
@@ -289,7 +296,7 @@ class AllDone:
 
 def schedule(
     func, args=None, kwargs=None,
-    precondition_date=None, precondition_tasks=None, blocked=False,
+    precondition_date=None, precondition_goals=None, blocked=False,
 ):
     if args is None:
         args = []
@@ -297,42 +304,42 @@ def schedule(
         kwargs = {}
     if precondition_date is None:
         precondition_date = timezone.now()
-    if precondition_tasks is None:
-        precondition_tasks = []
+    if precondition_goals is None:
+        precondition_goals = []
     func_name = inspect.getmodule(func).__name__ + '.' + func.__name__
 
     with transaction.atomic():
-        task = Task.objects.create(
-            state=TaskState.BLOCKED if blocked else TaskState.WAITING_FOR_DATE,
-            task_type=func_name,
+        goal = Goal.objects.create(
+            state=GoalState.BLOCKED if blocked else GoalState.WAITING_FOR_DATE,
+            handler=func_name,
             instructions={
                 'args': args,
                 'kwargs': kwargs,
             },
             precondition_date=precondition_date,
         )
-        task.precondition_tasks.set(precondition_tasks)
+        goal.precondition_goals.set(precondition_goals)
 
-    return task
+    return goal
 
 
-def get_dependent_task_ids(task_ids):
-    task_ids = list(task_ids)
-    qs = TaskDependency.objects.raw(
+def get_dependent_goal_ids(goal_ids):
+    goal_ids = list(goal_ids)
+    qs = GoalDependency.objects.raw(
         '''
-        WITH RECURSIVE dependent_tasks AS (
-            SELECT id FROM django_goals_task
-            WHERE id = ANY(%(task_ids)s)
+        WITH RECURSIVE dependent_goals AS (
+            SELECT id FROM django_goals_goal
+            WHERE id = ANY(%(goal_ids)s)
         UNION
-            SELECT django_goals_task.id
-            FROM django_goals_task
-            JOIN django_goals_taskdependency
-            ON django_goals_task.id = django_goals_taskdependency.dependent_task_id
-            JOIN dependent_tasks
-            ON django_goals_taskdependency.precondition_task_id = dependent_tasks.id
+            SELECT django_goals_goal.id
+            FROM django_goals_goal
+            JOIN django_goals_goaldependency
+            ON django_goals_goal.id = django_goals_goaldependency.dependent_goal_id
+            JOIN dependent_goals
+            ON django_goals_goaldependency.precondition_goal_id = dependent_goals.id
         )
-        SELECT id FROM dependent_tasks
+        SELECT id FROM dependent_goals
         ''',
-        {'task_ids': task_ids},
+        {'goal_ids': goal_ids},
     )
     return [obj.id for obj in qs]

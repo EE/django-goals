@@ -17,12 +17,15 @@ django-object-actions = {url = "https://github.com/EE/django-object-actions/arch
 
 [tool.poetry.group.dev.dependencies]
 pytest-django = "*"
+pytest-cov = "*"
 factory-boy = "*"
 flake8 = "*"
 flake8-isort = "*"
 flake8-pyproject = "*"
 django-environ = "*"
 psycopg = "*"
+pylint = "*"
+pylint-django = "*"
 
 
 [build-system]
@@ -47,3 +50,22 @@ lines_after_imports = 2
 # 5 = Hanging Grid Grouped
 multi_line_output = 5
 include_trailing_comma = true
+
+[tool.pylint.format]
+recursive = "yes"
+load-plugins = [
+    "pylint_django",
+]
+disable = [
+    "line-too-long",
+    "missing-docstring",
+    "duplicate-code",  # TODO: maybe enable someday?
+    "invalid-name",
+    "use-dict-literal",
+    "too-many-arguments",
+    "too-few-public-methods",
+    "too-many-ancestors",
+]
+
+[tool.pylint.pylint_django]
+django-settings-module = "example_project.settings"

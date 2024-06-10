@@ -4,10 +4,10 @@ from unittest import mock
 import pytest
 from django.utils import timezone
 
-from .factories import TaskFactory
+from .factories import GoalFactory
 from .models import (
-    RetryMeLater, Task, TaskState, handle_waiting_for_preconditions_tasks,
-    handle_waiting_for_worker_tasks, schedule, worker_turn,
+    Goal, GoalState, RetryMeLater, handle_waiting_for_preconditions,
+    handle_waiting_for_worker, schedule, worker_turn,
 )
 
 
@@ -19,119 +19,119 @@ def test_worker_turn_noop():
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize('task', [
-    {'state': TaskState.WAITING_FOR_DATE},
-    {'state': TaskState.WAITING_FOR_PRECONDITIONS},
-    {'state': TaskState.WAITING_FOR_WORKER},
-    {'state': TaskState.DONE},
-    {'state': TaskState.GIVEN_UP},
+@pytest.mark.parametrize('goal', [
+    {'state': GoalState.WAITING_FOR_DATE},
+    {'state': GoalState.WAITING_FOR_PRECONDITIONS},
+    {'state': GoalState.WAITING_FOR_WORKER},
+    {'state': GoalState.ACHIEVED},
+    {'state': GoalState.GIVEN_UP},
 ], indirect=True)
-def test_handle_waiting_for_worker_tasks_return_value(task):
+def test_handle_waiting_for_worker_return_value(goal):
     now = timezone.now()
-    did_a_thing = handle_waiting_for_worker_tasks(now)
-    assert did_a_thing is (task.state == TaskState.WAITING_FOR_WORKER)
+    did_a_thing = handle_waiting_for_worker(now)
+    assert did_a_thing is (goal.state == GoalState.WAITING_FOR_WORKER)
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize('task', [{
-    'state': TaskState.WAITING_FOR_WORKER,
-    'task_type': 'os.path.join',
+@pytest.mark.parametrize('goal', [{
+    'state': GoalState.WAITING_FOR_WORKER,
+    'handler': 'os.path.join',
     'instructions': {
         'args': [1, 2],
         'kwargs': {'a': 'b'},
     },
 }], indirect=True)
-def test_handle_waiting_for_worker_tasks_success(task):
+def test_handle_waiting_for_worker_success(goal):
     now = timezone.now()
 
     with mock.patch('os.path.join') as func:
         func.return_value = {'aaa': 'im happy'}  # will be ignored
-        handle_waiting_for_worker_tasks(now)
+        handle_waiting_for_worker(now)
 
     assert func.call_count == 1
-    assert func.call_args == mock.call(task, 1, 2, a='b')
+    assert func.call_args == mock.call(goal, 1, 2, a='b')
 
-    task.refresh_from_db()
-    assert task.state == TaskState.DONE
+    goal.refresh_from_db()
+    assert goal.state == GoalState.ACHIEVED
 
-    execution = task.executions.get()
-    assert execution.success
-    assert execution.time_taken > datetime.timedelta(0)
+    progress = goal.progress.get()
+    assert progress.success
+    assert progress.time_taken > datetime.timedelta(0)
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize('task', [{
-    'state': TaskState.WAITING_FOR_WORKER,
+@pytest.mark.parametrize('goal', [{
+    'state': GoalState.WAITING_FOR_WORKER,
     'precondition_date': timezone.now() - timezone.timedelta(days=1),
 }], indirect=True)
-def test_handle_waiting_for_worker_tasks_failure(task):
+def test_handle_waiting_for_worker_failure(goal):
     now = timezone.now()
     with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
         follow_instructions.side_effect = Exception
-        handle_waiting_for_worker_tasks(now)
+        handle_waiting_for_worker(now)
 
-    task.refresh_from_db()
-    assert task.state == TaskState.WAITING_FOR_DATE
-    assert task.precondition_date > now
+    goal.refresh_from_db()
+    assert goal.state == GoalState.WAITING_FOR_DATE
+    assert goal.precondition_date > now
 
-    execution = task.executions.get()
-    assert not execution.success
+    progress = goal.progress.get()
+    assert not progress.success
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize('task', [{'state': TaskState.WAITING_FOR_WORKER}], indirect=True)
-def test_handle_waiting_for_worker_tasks_retry(task):
+@pytest.mark.parametrize('goal', [{'state': GoalState.WAITING_FOR_WORKER}], indirect=True)
+def test_handle_waiting_for_worker_retry(goal):
     now = timezone.now()
-    other_task = TaskFactory()
+    other_goal = GoalFactory()
     with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
         follow_instructions.return_value = RetryMeLater(
-            precondition_tasks=[other_task],
+            precondition_goals=[other_goal],
         )
-        handle_waiting_for_worker_tasks(now)
+        handle_waiting_for_worker(now)
 
-    task.refresh_from_db()
-    assert task.state == TaskState.WAITING_FOR_DATE
-    assert task.precondition_tasks.get() == other_task
+    goal.refresh_from_db()
+    assert goal.state == GoalState.WAITING_FOR_DATE
+    assert goal.precondition_goals.get() == other_goal
 
-    execution = task.executions.get()
-    assert execution.success
+    progress = goal.progress.get()
+    assert progress.success
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize('task', [{
-    'state': TaskState.WAITING_FOR_PRECONDITIONS,
+@pytest.mark.parametrize('goal', [{
+    'state': GoalState.WAITING_FOR_PRECONDITIONS,
 }], indirect=True)
 @pytest.mark.parametrize(
-    ('precondition_task_states', 'expected_state'),
+    ('precondition_goal_states', 'expected_state'),
     [
-        ([], TaskState.WAITING_FOR_WORKER),
-        ([TaskState.DONE], TaskState.WAITING_FOR_WORKER),
-        ([TaskState.DONE, TaskState.DONE], TaskState.WAITING_FOR_WORKER),
-        ([TaskState.DONE, TaskState.GIVEN_UP], TaskState.NOT_GOING_TO_HAPPEN_SOON),
-        ([TaskState.WAITING_FOR_DATE], TaskState.WAITING_FOR_PRECONDITIONS),
-        ([TaskState.BLOCKED], TaskState.NOT_GOING_TO_HAPPEN_SOON),
+        ([], GoalState.WAITING_FOR_WORKER),
+        ([GoalState.ACHIEVED], GoalState.WAITING_FOR_WORKER),
+        ([GoalState.ACHIEVED, GoalState.ACHIEVED], GoalState.WAITING_FOR_WORKER),
+        ([GoalState.ACHIEVED, GoalState.GIVEN_UP], GoalState.NOT_GOING_TO_HAPPEN_SOON),
+        ([GoalState.WAITING_FOR_DATE], GoalState.WAITING_FOR_PRECONDITIONS),
+        ([GoalState.BLOCKED], GoalState.NOT_GOING_TO_HAPPEN_SOON),
     ],
 )
-def test_handle_waiting_for_preconditions_tasks(task, precondition_task_states, expected_state):
-    precondition_tasks = [
-        TaskFactory(state=state)
-        for state in precondition_task_states
+def test_handle_waiting_for_preconditions(goal, precondition_goal_states, expected_state):
+    precondition_goals = [
+        GoalFactory(state=state)
+        for state in precondition_goal_states
     ]
-    task.precondition_tasks.set(precondition_tasks)
+    goal.precondition_goals.set(precondition_goals)
 
-    handle_waiting_for_preconditions_tasks()
+    handle_waiting_for_preconditions()
 
-    task.refresh_from_db()
-    assert task.state == expected_state
+    goal.refresh_from_db()
+    assert goal.state == expected_state
 
 
-def trigger_database_error(task):
-    Task.objects.create(id=task.id)  # violates unique constraint
+def trigger_database_error(goal):
+    Goal.objects.create(id=goal.id)  # violates unique constraint
 
 
 @pytest.mark.django_db(transaction=True)
-def test_transaction_error_in_task():
-    task = schedule(trigger_database_error)
+def test_transaction_error_in_goal():
+    goal = schedule(trigger_database_error)
     worker_turn(timezone.now())
-    task.refresh_from_db()
-    assert task.state == TaskState.CORRUPTED
+    goal.refresh_from_db()
+    assert goal.state == GoalState.CORRUPTED
