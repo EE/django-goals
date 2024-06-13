@@ -4,7 +4,7 @@ import logging
 import time
 import uuid
 
-from django.db import models, transaction
+from django.db import connections, models, transaction
 from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
@@ -138,7 +138,7 @@ class GoalProgress(models.Model):
 
 
 def worker(stop_event):
-    logger.info('Worker starting')
+    logger.info('Busy-wait worker started')
     while not stop_event.is_set():
         now = timezone.now()
         transitions_done = worker_turn(now)
@@ -146,7 +146,7 @@ def worker(stop_event):
             # nothing could be done, let's go to sleep
             logging.debug('Nothing to do, sleeping for a bit')
             time.sleep(1)
-    logger.info('Worker exiting')
+    logger.info('Busy-wait worker exiting')
 
 
 def worker_turn(now):
@@ -154,16 +154,26 @@ def worker_turn(now):
     transitions_done += handle_waiting_for_date(now)
     transitions_done += handle_waiting_for_preconditions()
     while True:
-        try:
-            did_a_thing = handle_waiting_for_worker(now)
-        except Exception as e:  # pylint: disable=broad-except
-            logger.exception('Worker failed')
-            _handle_corrupted_progress(e)
-            did_a_thing = True
+        did_a_thing = handle_waiting_for_worker_guarded()
         if not did_a_thing:
             break
         transitions_done += 1
     return transitions_done
+
+
+def handle_waiting_for_worker_guarded():
+    """
+    Wrapper to catch exceptions and mark goal as corrupted when it happens.
+    Some exceptions might be caought and handled by the inner function,
+    but transaction management error for example is not recoverable there.
+    We need to catch it outside transaction.
+    """
+    try:
+        return handle_waiting_for_worker()
+    except Exception as e:  # pylint: disable=broad-except
+        logger.exception('Worker failed')
+        _handle_corrupted_progress(e)
+        return True
 
 
 def _handle_corrupted_progress(exc):
@@ -175,7 +185,9 @@ def _handle_corrupted_progress(exc):
             break
         traceback = traceback.tb_next
     goal = frame.f_locals['goal']
-    Goal.objects.filter(id=goal.id).update(state=GoalState.CORRUPTED)
+    with transaction.atomic():
+        Goal.objects.filter(id=goal.id).update(state=GoalState.CORRUPTED)
+        notify_goal_progress(goal.id, GoalState.CORRUPTED)
 
 
 def handle_waiting_for_date(now):
@@ -188,16 +200,31 @@ def handle_waiting_for_date(now):
 def handle_waiting_for_preconditions():
     transitions_done = 0
 
-    transitions_done += Goal.objects.filter(
-        state=GoalState.WAITING_FOR_PRECONDITIONS,
-    ).annotate(
-        num_preconditions=models.Count('precondition_goals'),
-        num_achieved_preconditions=models.Count('precondition_goals', filter=models.Q(
-            precondition_goals__state=GoalState.ACHIEVED,
-        )),
-    ).filter(
-        num_preconditions=models.F('num_achieved_preconditions'),
-    ).update(state=GoalState.WAITING_FOR_WORKER)
+    with transaction.atomic():
+        new_waiting_for_worker = Goal.objects.filter(
+            state=GoalState.WAITING_FOR_PRECONDITIONS,
+        ).annotate(
+            num_preconditions=models.Count('precondition_goals'),
+            num_achieved_preconditions=models.Count('precondition_goals', filter=models.Q(
+                precondition_goals__state=GoalState.ACHIEVED,
+            )),
+        ).filter(
+            num_preconditions=models.F('num_achieved_preconditions'),
+        )
+        # we need separate query to lock rows, because GROUP BY is not allowed with FOR UPDATE
+        new_waiting_for_worker = Goal.objects.filter(
+            id__in=new_waiting_for_worker,
+        ).select_for_update(
+            skip_locked=True,
+            no_key=True,
+        ).values_list('id', flat=True)
+        new_waiting_for_worker = list(new_waiting_for_worker)
+        if new_waiting_for_worker:
+            Goal.objects.filter(id__in=new_waiting_for_worker).update(state=GoalState.WAITING_FOR_WORKER)
+            with connections['default'].cursor() as cursor:
+                for goal_id in new_waiting_for_worker:
+                    notify_goal_waiting_for_worker(cursor, goal_id)
+        transitions_done += len(new_waiting_for_worker)
 
     # if a goal is waiting for preconditions that are not going to happen soon, it's not going to happen soon either
     transitions_done += Goal.objects.filter(
@@ -214,10 +241,14 @@ def handle_waiting_for_preconditions():
 
 
 @transaction.atomic
-def handle_waiting_for_worker(now):
+def handle_waiting_for_worker():
+    now = timezone.now()
     goal = Goal.objects.filter(state=GoalState.WAITING_FOR_WORKER).order_by(
         'precondition_date',
-    ).select_for_update(skip_locked=True).first()
+    ).select_for_update(
+        skip_locked=True,
+        no_key=True,
+    ).first()
     if goal is None:
         # nothing to do
         return False
@@ -266,6 +297,7 @@ def handle_waiting_for_worker(now):
         time_taken=datetime.timedelta(seconds=time_taken),
     )
     goal.save(update_fields=['state', 'created_at', 'precondition_date'])
+    notify_goal_progress(goal.id, goal.state)
     return True
 
 
@@ -297,30 +329,77 @@ class AllDone:
 def schedule(
     func, args=None, kwargs=None,
     precondition_date=None, precondition_goals=None, blocked=False,
+    listen=False,
 ):
+    state = GoalState.WAITING_FOR_DATE
     if args is None:
         args = []
     if kwargs is None:
         kwargs = {}
     if precondition_date is None:
         precondition_date = timezone.now()
+        state = GoalState.WAITING_FOR_PRECONDITIONS
     if precondition_goals is None:
         precondition_goals = []
+    if (
+        not precondition_goals and
+        state == GoalState.WAITING_FOR_PRECONDITIONS
+    ):
+        state = GoalState.WAITING_FOR_WORKER
+    if blocked:
+        state = GoalState.BLOCKED
     func_name = inspect.getmodule(func).__name__ + '.' + func.__name__
 
+    goal = Goal(
+        state=state,
+        handler=func_name,
+        instructions={
+            'args': args,
+            'kwargs': kwargs,
+        },
+        precondition_date=precondition_date,
+    )
+    if listen:
+        listen_goal_progress(goal.id)
+
     with transaction.atomic():
-        goal = Goal.objects.create(
-            state=GoalState.BLOCKED if blocked else GoalState.WAITING_FOR_DATE,
-            handler=func_name,
-            instructions={
-                'args': args,
-                'kwargs': kwargs,
-            },
-            precondition_date=precondition_date,
-        )
+        goal.save()
         goal.precondition_goals.set(precondition_goals)
+        if state == GoalState.WAITING_FOR_WORKER:
+            with connections['default'].cursor() as cursor:
+                notify_goal_waiting_for_worker(cursor, goal.id)
 
     return goal
+
+
+def notify_goal_waiting_for_worker(cursor, goal_id):
+    cursor.execute("NOTIFY goal_waiting_for_worker, %s", [str(goal_id)])
+
+
+def notify_goal_progress(goal_id, state):
+    with connections['default'].cursor() as cursor:
+        channel = get_goal_progress_channel(goal_id)
+        cursor.execute(f"NOTIFY {channel}, %s", [
+            state,
+        ])
+
+
+def listen_goal_progress(goal_id):
+    with connections['default'].cursor() as cursor:
+        channel = get_goal_progress_channel(goal_id)
+        cursor.execute(f'LISTEN {channel}')
+
+
+def get_goal_progress_channel(goal_id):
+    return f'goal_progress_{goal_id.hex}'
+
+
+def wait():
+    pg_conn = connections['default'].connection
+    notification_generator = pg_conn.notifies()
+    for notification in notification_generator:
+        notification_generator.close()
+    return notification  # pylint: disable=undefined-loop-variable
 
 
 def get_dependent_goal_ids(goal_ids):

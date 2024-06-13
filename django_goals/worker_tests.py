@@ -4,6 +4,7 @@ from unittest import mock
 import pytest
 from django.utils import timezone
 
+from .blocking_worker import listen_goal_waiting_for_worker
 from .factories import GoalFactory
 from .models import (
     Goal, GoalState, RetryMeLater, handle_waiting_for_preconditions,
@@ -27,8 +28,7 @@ def test_worker_turn_noop():
     {'state': GoalState.GIVEN_UP},
 ], indirect=True)
 def test_handle_waiting_for_worker_return_value(goal):
-    now = timezone.now()
-    did_a_thing = handle_waiting_for_worker(now)
+    did_a_thing = handle_waiting_for_worker()
     assert did_a_thing is (goal.state == GoalState.WAITING_FOR_WORKER)
 
 
@@ -42,11 +42,9 @@ def test_handle_waiting_for_worker_return_value(goal):
     },
 }], indirect=True)
 def test_handle_waiting_for_worker_success(goal):
-    now = timezone.now()
-
     with mock.patch('os.path.join') as func:
         func.return_value = {'aaa': 'im happy'}  # will be ignored
-        handle_waiting_for_worker(now)
+        handle_waiting_for_worker()
 
     assert func.call_count == 1
     assert func.call_args == mock.call(goal, 1, 2, a='b')
@@ -68,7 +66,7 @@ def test_handle_waiting_for_worker_failure(goal):
     now = timezone.now()
     with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
         follow_instructions.side_effect = Exception
-        handle_waiting_for_worker(now)
+        handle_waiting_for_worker()
 
     goal.refresh_from_db()
     assert goal.state == GoalState.WAITING_FOR_DATE
@@ -81,13 +79,12 @@ def test_handle_waiting_for_worker_failure(goal):
 @pytest.mark.django_db
 @pytest.mark.parametrize('goal', [{'state': GoalState.WAITING_FOR_WORKER}], indirect=True)
 def test_handle_waiting_for_worker_retry(goal):
-    now = timezone.now()
     other_goal = GoalFactory()
     with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
         follow_instructions.return_value = RetryMeLater(
             precondition_goals=[other_goal],
         )
-        handle_waiting_for_worker(now)
+        handle_waiting_for_worker()
 
     goal.refresh_from_db()
     assert goal.state == GoalState.WAITING_FOR_DATE
@@ -97,7 +94,7 @@ def test_handle_waiting_for_worker_retry(goal):
     assert progress.success
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize('goal', [{
     'state': GoalState.WAITING_FOR_PRECONDITIONS,
 }], indirect=True)
@@ -112,17 +109,28 @@ def test_handle_waiting_for_worker_retry(goal):
         ([GoalState.BLOCKED], GoalState.NOT_GOING_TO_HAPPEN_SOON),
     ],
 )
-def test_handle_waiting_for_preconditions(goal, precondition_goal_states, expected_state):
+def test_handle_waiting_for_preconditions(goal, precondition_goal_states, expected_state, get_notifications):
     precondition_goals = [
         GoalFactory(state=state)
         for state in precondition_goal_states
     ]
     goal.precondition_goals.set(precondition_goals)
+    listen_goal_waiting_for_worker()
 
     handle_waiting_for_preconditions()
 
     goal.refresh_from_db()
     assert goal.state == expected_state
+
+    # notification was sent accordingly
+    notifications = get_notifications()
+    if expected_state == GoalState.WAITING_FOR_WORKER:
+        assert len(notifications) == 1
+        notification = notifications[0]
+        assert notification.channel == 'goal_waiting_for_worker'
+        assert notification.payload == str(goal.id)
+    else:
+        assert not notifications
 
 
 def trigger_database_error(goal):
