@@ -79,12 +79,18 @@ class Goal(models.Model):
         ]
 
     def block(self):
+        """
+        Mark the goal as blocked, so it will not be pursued.
+        """
         if self.state not in (GoalState.WAITING_FOR_DATE, GoalState.WAITING_FOR_PRECONDITIONS):
             raise ValueError(f'Cannot block goal in state {self.state}')
         self.state = GoalState.BLOCKED
         self.save(update_fields=['state'])
 
     def unblock(self):
+        """
+        Mark the goal as unblocked, so it can be pursued again.
+        """
         if self.state != GoalState.BLOCKED:
             raise ValueError(f'Cannot unblock goal in state {self.state}')
         self.state = GoalState.WAITING_FOR_DATE
@@ -95,6 +101,9 @@ class Goal(models.Model):
         ).update(state=GoalState.WAITING_FOR_DATE)
 
     def retry(self):
+        """
+        Mark the goal as ready to be pursued again.
+        """
         if self.state not in (GoalState.GIVEN_UP, GoalState.CORRUPTED):
             raise ValueError(f'Cannot retry goal in state {self.state}')
         self.state = GoalState.WAITING_FOR_DATE
@@ -108,6 +117,10 @@ class Goal(models.Model):
 
 
 class GoalDependency(models.Model):
+    """
+    The GoalDependency is a many-to-many through model for Goal.
+    Its purpose is to define which goals need to be achieved before another goal can be pursued.
+    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     dependent_goal = models.ForeignKey(
         to=Goal,
@@ -127,6 +140,9 @@ class GoalDependency(models.Model):
 
 
 class GoalProgress(models.Model):
+    """
+    GoalProgress represents a single attempt to achieve a goal.
+    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     goal = models.ForeignKey(Goal, on_delete=models.CASCADE, related_name='progress')
     success = models.BooleanField()
@@ -138,6 +154,17 @@ class GoalProgress(models.Model):
 
 
 def worker(stop_event):
+    """
+    Worker is a busy-wait function that will keep checking for goals to pursue.
+    It will keep running until stop_event is set.
+    Process:
+    1. Check if there are goals that are waiting for date and the date has come.
+    2. Check if there are goals that are waiting for preconditions and all preconditions are achieved.
+    3. Check if there are goals that are waiting for worker and pick one to pursue.
+    4. If nothing could be done, sleep for a bit.
+    5. Repeat until stop_event is set.
+    transitions_done is a counter of how many goals changed their state during the turn.
+    """
     logger.info('Busy-wait worker started')
     while not stop_event.is_set():
         now = timezone.now()
@@ -150,6 +177,11 @@ def worker(stop_event):
 
 
 def worker_turn(now):
+    """
+    Worker turn is a single iteration of the worker.
+    It will try to transition as many goals as possible.
+    Returns a number of transitions done.
+    """
     transitions_done = 0
     transitions_done += handle_waiting_for_date(now)
     transitions_done += handle_waiting_for_preconditions()
@@ -177,7 +209,9 @@ def handle_waiting_for_worker_guarded():
 
 
 def _handle_corrupted_progress(exc):
-    # retrieve goal from the traceback and mark it as corrupted
+    """
+    Find the goal that caused the exception and mark it as corrupted.
+    """
     traceback = exc.__traceback__
     while traceback is not None:
         frame = traceback.tb_frame
@@ -191,6 +225,9 @@ def _handle_corrupted_progress(exc):
 
 
 def handle_waiting_for_date(now):
+    """
+    Transition goals that are waiting for precondition date and the date has come.
+    """
     return Goal.objects.filter(
         state=GoalState.WAITING_FOR_DATE,
         precondition_date__lte=now,
@@ -198,6 +235,10 @@ def handle_waiting_for_date(now):
 
 
 def handle_waiting_for_preconditions():
+    """
+    Transition goals that are waiting for precondition goals to be achieved
+    and all preconditions are achieved.
+    """
     transitions_done = 0
 
     with transaction.atomic():
@@ -242,7 +283,11 @@ def handle_waiting_for_preconditions():
 
 @transaction.atomic
 def handle_waiting_for_worker():
+    """
+    Transition goals that are waiting for a worker to pick them up.
+    """
     now = timezone.now()
+    # Get the first goal that is waiting for a worker
     goal = Goal.objects.filter(state=GoalState.WAITING_FOR_WORKER).order_by(
         'precondition_date',
     ).select_for_update(
@@ -302,12 +347,18 @@ def handle_waiting_for_worker():
 
 
 def follow_instructions(goal):
+    """
+    Call the handler function with instructions.
+    """
     func = import_string(goal.handler)
     instructions = goal.instructions
     return func(goal, *instructions['args'], **instructions['kwargs'])
 
 
 def get_retry_delay(failure_index):
+    """
+    Get the delay before retrying the goal.
+    """
     max_failures = 3
     if failure_index >= max_failures:
         return None
@@ -331,6 +382,9 @@ def schedule(
     precondition_date=None, precondition_goals=None, blocked=False,
     listen=False,
 ):
+    """
+    Schedule a goal to be pursued.
+    """
     state = GoalState.WAITING_FOR_DATE
     if args is None:
         args = []
@@ -373,10 +427,16 @@ def schedule(
 
 
 def notify_goal_waiting_for_worker(cursor, goal_id):
+    """
+    Notify that the goal is waiting for a worker to pick it up.
+    """
     cursor.execute("NOTIFY goal_waiting_for_worker, %s", [str(goal_id)])
 
 
 def notify_goal_progress(goal_id, state):
+    """
+    Notify that the goal has changed its state.
+    """
     with connections['default'].cursor() as cursor:
         channel = get_goal_progress_channel(goal_id)
         cursor.execute(f"NOTIFY {channel}, %s", [
@@ -385,16 +445,25 @@ def notify_goal_progress(goal_id, state):
 
 
 def listen_goal_progress(goal_id):
+    """
+    Listen for goal progress notifications.
+    """
     with connections['default'].cursor() as cursor:
         channel = get_goal_progress_channel(goal_id)
         cursor.execute(f'LISTEN {channel}')
 
 
 def get_goal_progress_channel(goal_id):
+    """
+    Get the channel name for goal progress notifications.
+    """
     return f'goal_progress_{goal_id.hex}'
 
 
 def wait():
+    """
+    Wait for a goal progress notification.
+    """
     pg_conn = connections['default'].connection
     notification_generator = pg_conn.notifies()
     for notification in notification_generator:
@@ -403,9 +472,12 @@ def wait():
 
 
 def get_dependent_goal_ids(goal_ids):
+    """
+    Get the IDs of goals that depend on the given goals.
+    """
     goal_ids = list(goal_ids)
     qs = GoalDependency.objects.raw(
-        '''
+        """
         WITH RECURSIVE dependent_goals AS (
             SELECT id FROM django_goals_goal
             WHERE id = ANY(%(goal_ids)s)
@@ -418,7 +490,7 @@ def get_dependent_goal_ids(goal_ids):
             ON django_goals_goaldependency.precondition_goal_id = dependent_goals.id
         )
         SELECT id FROM dependent_goals
-        ''',
+        """,
         {'goal_ids': goal_ids},
     )
     return [obj.id for obj in qs]

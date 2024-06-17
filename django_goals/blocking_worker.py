@@ -9,6 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 def worker():
+    '''
+    This worker is a blocking worker that listens for notifications on the
+    goal_waiting_for_worker channel. It will then call the
+    handle_waiting_for_worker_guarded function to handle the waiting for worker
+    jobs. This worker will run indefinitely until it is stopped.
+    '''
     logger.info("Blocking worker started, registering listener (goal_waiting_for_worker)")
     listen_goal_waiting_for_worker()
 
