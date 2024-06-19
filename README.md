@@ -25,7 +25,7 @@ Django Goals is a task queue library for Django that allows you to define and ma
 Install the package using pip:
 
 ```bash
-pip install django-goals
+pip install https://github.com/EE/django-goals/archive/refs/heads/main.zip
 ```
 
 Add django_goals to your INSTALLED_APPS in your Django settings:
