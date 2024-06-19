@@ -34,6 +34,7 @@ Add django_goals to your INSTALLED_APPS in your Django settings:
 INSTALLED_APPS = [
     ...,
     'django_goals',
+    'django_object_actions',  # django-goals dependency
 ]
 ```
 
