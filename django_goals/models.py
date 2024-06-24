@@ -200,12 +200,20 @@ def handle_waiting_for_worker_guarded():
     but transaction management error for example is not recoverable there.
     We need to catch it outside transaction.
     """
+    changed_goal = None
     try:
-        return handle_waiting_for_worker()
+        progress = handle_waiting_for_worker()
     except Exception as e:  # pylint: disable=broad-except
         logger.exception('Worker failed')
-        _handle_corrupted_progress(e)
-        return True
+        changed_goal = _handle_corrupted_progress(e)
+    else:
+        if progress is not None:
+            changed_goal = progress.goal
+    if changed_goal is not None:
+        handle_waiting_for_preconditions(Goal.objects.filter(
+            precondition_goals__id=changed_goal.id,
+        ))
+    return changed_goal is not None
 
 
 def _handle_corrupted_progress(exc):
@@ -222,6 +230,7 @@ def _handle_corrupted_progress(exc):
     with transaction.atomic():
         Goal.objects.filter(id=goal.id).update(state=GoalState.CORRUPTED)
         notify_goal_progress(goal.id, GoalState.CORRUPTED)
+    return goal
 
 
 def handle_waiting_for_date(now):
@@ -234,15 +243,17 @@ def handle_waiting_for_date(now):
     ).update(state=GoalState.WAITING_FOR_PRECONDITIONS)
 
 
-def handle_waiting_for_preconditions():
+def handle_waiting_for_preconditions(goals_qs=None):
     """
     Transition goals that are waiting for precondition goals to be achieved
     and all preconditions are achieved.
     """
+    if goals_qs is None:
+        goals_qs = Goal.objects.all()
     transitions_done = 0
 
     with transaction.atomic():
-        new_waiting_for_worker = Goal.objects.filter(
+        new_waiting_for_worker = goals_qs.filter(
             state=GoalState.WAITING_FOR_PRECONDITIONS,
         ).annotate(
             num_preconditions=models.Count('precondition_goals'),
@@ -252,11 +263,11 @@ def handle_waiting_for_preconditions():
         ).filter(
             num_preconditions=models.F('num_achieved_preconditions'),
         )
-        # we need separate query to lock rows, because GROUP BY is not allowed with FOR UPDATE
+        # GROUP BY in the original query is not allowed with FOR UPDATE needed to lock rows.
+        # We need to wrap the original query.
         new_waiting_for_worker = Goal.objects.filter(
             id__in=new_waiting_for_worker,
         ).select_for_update(
-            skip_locked=True,
             no_key=True,
         ).values_list('id', flat=True)
         new_waiting_for_worker = list(new_waiting_for_worker)
@@ -268,7 +279,7 @@ def handle_waiting_for_preconditions():
         transitions_done += len(new_waiting_for_worker)
 
     # if a goal is waiting for preconditions that are not going to happen soon, it's not going to happen soon either
-    transitions_done += Goal.objects.filter(
+    transitions_done += goals_qs.filter(
         state=GoalState.WAITING_FOR_PRECONDITIONS,
         precondition_goals__state__in=(
             GoalState.BLOCKED,
@@ -296,7 +307,7 @@ def handle_waiting_for_worker():
     ).first()
     if goal is None:
         # nothing to do
-        return False
+        return None
 
     logger.info('Just about to pursue goal %s: %s', goal.id, goal.handler)
     start_time = time.monotonic()
@@ -335,7 +346,7 @@ def handle_waiting_for_worker():
 
     time_taken = time.monotonic() - start_time
 
-    GoalProgress.objects.create(
+    progress = GoalProgress.objects.create(
         goal=goal,
         success=success,
         created_at=now,
@@ -343,7 +354,7 @@ def handle_waiting_for_worker():
     )
     goal.save(update_fields=['state', 'created_at', 'precondition_date'])
     notify_goal_progress(goal.id, goal.state)
-    return True
+    return progress
 
 
 def follow_instructions(goal):
@@ -352,7 +363,13 @@ def follow_instructions(goal):
     """
     func = import_string(goal.handler)
     instructions = goal.instructions
-    return func(goal, *instructions['args'], **instructions['kwargs'])
+    if instructions is None:
+        instructions = {}
+    return func(
+        goal,
+        *instructions.get('args', ()),
+        **instructions.get('kwargs', {}),
+    )
 
 
 def get_retry_delay(failure_index):
@@ -386,10 +403,15 @@ def schedule(
     Schedule a goal to be pursued.
     """
     state = GoalState.WAITING_FOR_DATE
-    if args is None:
-        args = []
-    if kwargs is None:
-        kwargs = {}
+
+    instructions = {}
+    if args is not None:
+        instructions['args'] = args
+    if kwargs is not None:
+        instructions['kwargs'] = kwargs
+    if not instructions:
+        instructions = None
+
     if precondition_date is None:
         precondition_date = timezone.now()
         state = GoalState.WAITING_FOR_PRECONDITIONS
@@ -407,10 +429,7 @@ def schedule(
     goal = Goal(
         state=state,
         handler=func_name,
-        instructions={
-            'args': args,
-            'kwargs': kwargs,
-        },
+        instructions=instructions,
         precondition_date=precondition_date,
     )
     if listen:

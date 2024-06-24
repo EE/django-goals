@@ -28,7 +28,8 @@ def test_worker_turn_noop():
     {'state': GoalState.GIVEN_UP},
 ], indirect=True)
 def test_handle_waiting_for_worker_return_value(goal):
-    did_a_thing = handle_waiting_for_worker()
+    progress = handle_waiting_for_worker()
+    did_a_thing = progress is not None
     assert did_a_thing is (goal.state == GoalState.WAITING_FOR_WORKER)
 
 
