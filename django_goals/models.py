@@ -330,9 +330,11 @@ def handle_waiting_for_worker():
             logger.info('Goal %s needs to be retried later', goal.id)
             success = True
             goal.state = GoalState.WAITING_FOR_DATE
-            # move scheduled time forward to avoid starving other goals, in the case this one wants to be retried often
-            goal.precondition_date = now
+            if ret.precondition_date is not None:
+                goal.precondition_date = max(goal.precondition_date, ret.precondition_date)
             goal.precondition_goals.add(*ret.precondition_goals)
+            # move scheduled time forward to avoid starving other goals, in the case this one wants to be retried often
+            goal.precondition_date = max(goal.precondition_date, now)
 
         elif isinstance(ret, AllDone):
             logger.info('Goal %s was achieved', goal.id)
@@ -386,7 +388,8 @@ class RetryMeLater:
     """
     Like a process yielding in operating system.
     """
-    def __init__(self, precondition_goals=()):
+    def __init__(self, precondition_date=None, precondition_goals=()):
+        self.precondition_date = precondition_date
         self.precondition_goals = precondition_goals
 
 

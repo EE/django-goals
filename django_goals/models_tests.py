@@ -37,7 +37,7 @@ def test_get_dependent_goal_ids(goal):
     assert goal.id not in get_dependent_goal_ids([next_goal.pk])
 
 
-def noop(goal):
+def noop(goal):  # pylint: disable=unused-argument
     pass
 
 
