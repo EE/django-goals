@@ -312,7 +312,10 @@ def handle_waiting_for_worker():
     logger.info('Just about to pursue goal %s: %s', goal.id, goal.handler)
     start_time = time.monotonic()
     try:
-        ret = follow_instructions(goal)
+        try:
+            ret = follow_instructions(goal)
+        except RetryMeLaterException as e:
+            ret = RetryMeLater(e.precondition_date, e.precondition_goals)
 
     except Exception:  # pylint: disable=broad-except
         logger.exception('Goal %s failed', goal.id)
@@ -388,6 +391,12 @@ class RetryMeLater:
     """
     Like a process yielding in operating system.
     """
+    def __init__(self, precondition_date=None, precondition_goals=()):
+        self.precondition_date = precondition_date
+        self.precondition_goals = precondition_goals
+
+
+class RetryMeLaterException(Exception):
     def __init__(self, precondition_date=None, precondition_goals=()):
         self.precondition_date = precondition_date
         self.precondition_goals = precondition_goals

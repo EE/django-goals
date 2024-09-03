@@ -7,8 +7,9 @@ from django.utils import timezone
 from .blocking_worker import listen_goal_waiting_for_worker
 from .factories import GoalFactory
 from .models import (
-    Goal, GoalState, RetryMeLater, handle_waiting_for_preconditions,
-    handle_waiting_for_worker, schedule, worker_turn,
+    Goal, GoalState, RetryMeLater, RetryMeLaterException,
+    handle_waiting_for_preconditions, handle_waiting_for_worker, schedule,
+    worker_turn,
 )
 
 
@@ -93,6 +94,24 @@ def test_handle_waiting_for_worker_retry(goal):
     assert goal.state == GoalState.WAITING_FOR_DATE
     assert goal.precondition_date == precondition_date
     assert goal.precondition_goals.get() == other_goal
+
+    progress = goal.progress.get()
+    assert progress.success
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('goal', [{'state': GoalState.WAITING_FOR_WORKER}], indirect=True)
+def test_handle_waiting_for_worker_retry_by_exception(goal):
+    precondition_date = timezone.now() + timezone.timedelta(days=1)
+    with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
+        follow_instructions.side_effect = RetryMeLaterException(
+            precondition_date=precondition_date,
+        )
+        handle_waiting_for_worker()
+
+    goal.refresh_from_db()
+    assert goal.state == GoalState.WAITING_FOR_DATE
+    assert goal.precondition_date == precondition_date
 
     progress = goal.progress.get()
     assert progress.success
