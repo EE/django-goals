@@ -84,13 +84,9 @@ goal = schedule(
 
 Run the worker to process the goals. There are two types of workers: blocking and busy-wait.
 
-#### Blocking Worker
+You can mix worker types and you can spawn many of them.
 
-The blocking worker listens for notifications and processes goals when they are ready.
-
-```bash
-python manage.py goals_blocking_worker
-```
+Some work cannot be done by blocking worker, so **you must run at least one busy worker instance**. Blocking worker is useful for minimizing latency in certain setups.
 
 #### Busy-Wait Worker
 
@@ -98,6 +94,28 @@ The busy-wait worker continuously checks for goals to process.
 
 ```bash
 python manage.py goals_busy_worker
+```
+
+You can instruct the worker to exit after some work is done. Useful for minimizing impact of memory leaks.
+
+```bash
+python manage.py goals_busy_worker --max-transitions 100
+```
+
+Transitions are not only handler calls, but all goal state changes performed by worker.
+
+A quick way to replace exited workers is to use `yes | xargs -P <how many workers>`
+
+```bash
+yes | xargs -I -L1 -P4 -- ./manage.py goals_busy_worker --max-transitions 100
+```
+
+#### Blocking Worker
+
+The blocking worker listens for notifications and processes goals when they are ready.
+
+```bash
+python manage.py goals_blocking_worker
 ```
 
 ### Monitoring and Managing Goals
