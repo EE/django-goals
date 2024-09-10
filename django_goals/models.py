@@ -149,6 +149,7 @@ class GoalProgress(models.Model):
     success = models.BooleanField()
     created_at = models.DateTimeField(default=timezone.now)
     time_taken = models.DurationField(null=True)
+    message = models.CharField(max_length=200, blank=True)
 
     class Meta:
         ordering = ('goal', '-created_at')
@@ -325,11 +326,12 @@ def handle_waiting_for_worker():
         try:
             ret = follow_instructions(goal)
         except RetryMeLaterException as e:
-            ret = RetryMeLater(e.precondition_date, e.precondition_goals)
+            ret = RetryMeLater(**e.__dict__)
 
     except Exception:  # pylint: disable=broad-except
         logger.exception('Goal %s failed', goal.id)
         success = False
+        message = ''
         failure_index = goal.progress.filter(success=False).count()
         retry_delay = get_retry_delay(failure_index)
         if retry_delay is None:
@@ -342,6 +344,7 @@ def handle_waiting_for_worker():
         if isinstance(ret, RetryMeLater):
             logger.info('Goal %s needs to be retried later', goal.id)
             success = True
+            message = ret.message
             goal.state = GoalState.WAITING_FOR_DATE
             if ret.precondition_date is not None:
                 goal.precondition_date = max(goal.precondition_date, ret.precondition_date)
@@ -352,11 +355,13 @@ def handle_waiting_for_worker():
         elif isinstance(ret, AllDone):
             logger.info('Goal %s was achieved', goal.id)
             success = True
+            message = ''
             goal.state = GoalState.ACHIEVED
 
         else:
             logger.warning('Goal %s handler returned unknown value, which is ignored', goal.id)
             success = True
+            message = ''
             goal.state = GoalState.ACHIEVED
 
     time_taken = time.monotonic() - start_time
@@ -365,6 +370,7 @@ def handle_waiting_for_worker():
         success=success,
         created_at=now,
         time_taken=datetime.timedelta(seconds=time_taken),
+        message=message,
     )
 
     # check max progress count
@@ -411,15 +417,14 @@ class RetryMeLater:
     """
     Like a process yielding in operating system.
     """
-    def __init__(self, precondition_date=None, precondition_goals=()):
+    def __init__(self, precondition_date=None, precondition_goals=(), message=''):
         self.precondition_date = precondition_date
         self.precondition_goals = precondition_goals
+        self.message = message
 
 
-class RetryMeLaterException(Exception):
-    def __init__(self, precondition_date=None, precondition_goals=()):
-        self.precondition_date = precondition_date
-        self.precondition_goals = precondition_goals
+class RetryMeLaterException(RetryMeLater, Exception):
+    pass
 
 
 class AllDone:

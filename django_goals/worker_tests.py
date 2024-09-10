@@ -106,6 +106,7 @@ def test_handle_waiting_for_worker_retry_by_exception(goal):
     with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
         follow_instructions.side_effect = RetryMeLaterException(
             precondition_date=precondition_date,
+            message='asdf',
         )
         handle_waiting_for_worker()
 
@@ -115,6 +116,7 @@ def test_handle_waiting_for_worker_retry_by_exception(goal):
 
     progress = goal.progress.get()
     assert progress.success
+    assert progress.message == 'asdf'
 
 
 @pytest.mark.django_db
