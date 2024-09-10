@@ -1,6 +1,7 @@
 import json
 
 from django.contrib import admin, messages
+from django.db import models
 from django.utils.html import format_html
 from django.utils.translation import gettext as _
 from django_object_actions import DjangoObjectActions, action
@@ -58,7 +59,10 @@ class GoalProgressInline(admin.TabularInline):
 
 @admin.register(Goal)
 class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
-    list_display = ('id', 'state', 'handler', 'precondition_date', 'created_at')
+    list_display = (
+        'id', 'state', 'handler', 'precondition_date', 'created_at',
+        'progress_count',
+    )
     list_filter = ('state', 'precondition_date')
     search_fields = ('id',)
 
@@ -88,6 +92,15 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(
+            progress_count=models.Count('progress'),
+        )
+
+    @admin.display
+    def progress_count(self, obj):
+        return obj.progress_count
 
     @admin.display(description='Instructions')
     def instructions_pre(self, obj):

@@ -117,6 +117,18 @@ def test_handle_waiting_for_worker_retry_by_exception(goal):
     assert progress.success
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize('goal', [{'state': GoalState.WAITING_FOR_WORKER}], indirect=True)
+def test_handle_waiting_for_worker_max_progress_exceeded(goal, settings):
+    settings.GOALS_MAX_PROGRESS_COUNT = 1
+    with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
+        follow_instructions.return_value = RetryMeLater()
+        handle_waiting_for_worker()
+    goal.refresh_from_db()
+    assert goal.state == GoalState.GIVEN_UP
+    assert goal.progress.count() == 1
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize('goal', [{
     'state': GoalState.WAITING_FOR_PRECONDITIONS,

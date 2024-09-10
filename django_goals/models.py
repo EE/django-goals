@@ -4,6 +4,7 @@ import logging
 import time
 import uuid
 
+from django.conf import settings
 from django.db import connections, models, transaction
 from django.utils import timezone
 from django.utils.module_loading import import_string
@@ -204,10 +205,10 @@ def worker_turn(now):
 
 def handle_waiting_for_worker_guarded():
     """
-    Wrapper to catch exceptions and mark goal as corrupted when it happens.
-    Some exceptions might be caought and handled by the inner function,
+    Wrapper to catch exceptions and mark the goal as corrupted when it happens.
+    Some exceptions might be caught and handled by the inner function,
     but transaction management error for example is not recoverable there.
-    We need to catch it outside transaction.
+    We need to catch it outside the transaction.
     """
     changed_goal = None
     try:
@@ -360,13 +361,23 @@ def handle_waiting_for_worker():
 
     time_taken = time.monotonic() - start_time
 
-    progress = GoalProgress.objects.create(
-        goal=goal,
+    progress = goal.progress.create(
         success=success,
         created_at=now,
         time_taken=datetime.timedelta(seconds=time_taken),
     )
-    goal.save(update_fields=['state', 'created_at', 'precondition_date'])
+
+    # check max progress count
+    max_progress_count = getattr(settings, 'GOALS_MAX_PROGRESS_COUNT', 100)
+    if (
+        max_progress_count is not None and
+        goal.state != GoalState.ACHIEVED and
+        goal.progress.count() >= max_progress_count
+    ):
+        logger.warning('Goal %s reached max progress count, giving up', goal.id)
+        goal.state = GoalState.GIVEN_UP
+
+    goal.save(update_fields=['state', 'precondition_date'])
     notify_goal_progress(goal.id, goal.state)
     return progress
 

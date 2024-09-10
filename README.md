@@ -136,6 +136,9 @@ Goals can be in various states:
 
 The state transitions are managed automatically based on the preconditions and the outcome of the handler function.
 
+### Settings
+
+`GOALS_MAX_PROGRESS_COUNT` - Maximum number of progress entries a goal can have. Useful for limiting impact of bugs in handler functions. Instead of spinning indefinitely and filling up the database, the goal will be marked as failed. Set it to `None` to disable the limit. Default is `100`.
 
 ## A real-life example: use Django Goals in e-commerce
 
