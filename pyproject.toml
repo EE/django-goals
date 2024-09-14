@@ -12,7 +12,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.12"
 django = ">=4.2"
-django-object-actions = {url = "https://github.com/EE/django-object-actions/archive/adab5895f72b3d139323c35e2af6aa9acc3e7d4e.zip"}
+django-object-actions = ">=4.3"
 
 
 [tool.poetry.group.dev.dependencies]

@@ -153,17 +153,14 @@ testing = ["coverage[toml] (>=5.0a4)", "pytest (>=4.6.11)"]
 
 [[package]]
 name = "django-object-actions"
-version = "4.2.0"
+version = "4.3.0"
 description = "A Django app for adding object tools for models in the admin"
 optional = false
-python-versions = "^3.7"
+python-versions = "<4.0,>=3.7"
 files = [
-    {file = "adab5895f72b3d139323c35e2af6aa9acc3e7d4e.zip", hash = "sha256:be48048f8a10d703ffc5300e3eb8bbac0e8449c28859dfdf76e9a30ce26a5451"},
+    {file = "django_object_actions-4.3.0-py3-none-any.whl", hash = "sha256:1af87dedcfd5a35207a4b90c386c059e5f02ecf1d954e3131e25f4a04d01c963"},
+    {file = "django_object_actions-4.3.0.tar.gz", hash = "sha256:611f768d768c9ca7b48278573feb7c07966174f5c50a9323ab4d02d0c4b7501e"},
 ]
-
-[package.source]
-type = "url"
-url = "https://github.com/EE/django-object-actions/archive/adab5895f72b3d139323c35e2af6aa9acc3e7d4e.zip"
 
 [[package]]
 name = "factory-boy"
@@ -558,4 +555,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "c35a9fe67f75b6f1549e29b28003b6ba7952168e17b73e3e5a31c4ce54207747"
+content-hash = "90572560e3ae4a9d3ecc1b0a59eb85093860057f22843ddfba305754f806b2fb"
