@@ -8,7 +8,7 @@ from django.utils import timezone
 from example_app.models import GoalRelatedModel
 
 from .blocking_worker import listen_goal_waiting_for_worker
-from .factories import GoalFactory
+from .factories import GoalFactory, GoalProgressFactory
 from .models import (
     Goal, GoalState, RetryMeLater, RetryMeLaterException,
     handle_waiting_for_preconditions, handle_waiting_for_worker, schedule,
@@ -201,9 +201,17 @@ def test_old_achieved_goal_is_deleted(days_ago, state, expect_deleted):
         state=state,
         created_at=now - timezone.timedelta(days=days_ago),
     )
+    GoalProgressFactory(goal=goal)
+    dependent_goal = GoalFactory(precondition_goals=[goal])
+
     worker_turn(now)
+
     exists_after = Goal.objects.filter(id=goal.id).exists()
     assert exists_after is not expect_deleted
+
+    # dependecy is removed
+    dependent_goal.refresh_from_db()
+    assert dependent_goal.precondition_goals.exists() is not expect_deleted
 
 
 @pytest.mark.django_db
@@ -223,4 +231,5 @@ def test_protected_old_achieved_goal():
     with mock.patch('django_goals.models.logger.warning') as warning:
         worker_turn(now)
     assert warning.call_count == 1
-    assert 'could not be deleted' in warning.call_args[0][0]
+    assert 'old goals' in warning.call_args[0][0]
+    assert 'protected' in str(warning.call_args[0][1])

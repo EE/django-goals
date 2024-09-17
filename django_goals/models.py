@@ -419,12 +419,15 @@ def remove_old_goals(now):
     if retention_seconds is None:
         return
     try:
-        Goal.objects.filter(
-            state=GoalState.ACHIEVED,
-            created_at__lt=now - datetime.timedelta(seconds=retention_seconds),
-        ).delete()
-    except models.ProtectedError:
-        logger.warning('Some goals could not be deleted due to protected dependencies')
+        with transaction.atomic():
+            goals_to_delete = Goal.objects.filter(
+                state=GoalState.ACHIEVED,
+                created_at__lt=now - datetime.timedelta(seconds=retention_seconds),
+            )
+            GoalDependency.objects.filter(precondition_goal__in=goals_to_delete).delete()
+            goals_to_delete.delete()
+    except models.ProtectedError as e:
+        logger.warning('When cleaning old goals: %s', e)
 
 
 class RetryMeLater:
