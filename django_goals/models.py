@@ -343,7 +343,7 @@ def handle_waiting_for_worker():
 
     else:
         if isinstance(ret, RetryMeLater):
-            logger.info('Goal %s needs to be retried later', goal.id)
+            logger.info('Goal %s needs to be retried later. Message: %s', goal.id, ret.message)
             success = True
             message = ret.message
             goal.state = GoalState.WAITING_FOR_DATE
