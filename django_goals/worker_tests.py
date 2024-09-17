@@ -2,7 +2,10 @@ import datetime
 from unittest import mock
 
 import pytest
+from django.db import models
 from django.utils import timezone
+
+from example_app.models import GoalRelatedModel
 
 from .blocking_worker import listen_goal_waiting_for_worker
 from .factories import GoalFactory
@@ -180,3 +183,44 @@ def test_transaction_error_in_goal():
     worker_turn(timezone.now())
     goal.refresh_from_db()
     assert goal.state == GoalState.CORRUPTED
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('days_ago', 'state', 'expect_deleted'),
+    [
+        (31, GoalState.ACHIEVED, True),
+        (1, GoalState.ACHIEVED, False),
+        (31, GoalState.WAITING_FOR_WORKER, False),
+        (31, GoalState.GIVEN_UP, False),
+    ],
+)
+def test_old_achieved_goal_is_deleted(days_ago, state, expect_deleted):
+    now = timezone.now()
+    goal = GoalFactory(
+        state=state,
+        created_at=now - timezone.timedelta(days=days_ago),
+    )
+    worker_turn(now)
+    exists_after = Goal.objects.filter(id=goal.id).exists()
+    assert exists_after is not expect_deleted
+
+
+@pytest.mark.django_db
+def test_protected_old_achieved_goal():
+    now = timezone.now()
+    goal = GoalFactory(
+        state=GoalState.ACHIEVED,
+        created_at=now - timezone.timedelta(days=31),
+    )
+    GoalRelatedModel.objects.create(goal=goal)
+
+    # check we can't delete the goal
+    with pytest.raises(models.ProtectedError):
+        goal.delete()
+
+    # worker turn doesn't crash, but emits a warning
+    with mock.patch('django_goals.models.logger.warning') as warning:
+        worker_turn(now)
+    assert warning.call_count == 1
+    assert 'could not be deleted' in warning.call_args[0][0]

@@ -201,6 +201,7 @@ def worker_turn(now):
         if not did_a_thing:
             break
         transitions_done += 1
+    remove_old_goals(now)
     return transitions_done
 
 
@@ -411,6 +412,19 @@ def get_retry_delay(failure_index):
     if failure_index >= max_failures:
         return None
     return datetime.timedelta(seconds=10) * (2 ** failure_index)
+
+
+def remove_old_goals(now):
+    retention_seconds = getattr(settings, 'GOALS_RETENTION_SECONDS', 60 * 60 * 24 * 7)
+    if retention_seconds is None:
+        return
+    try:
+        Goal.objects.filter(
+            state=GoalState.ACHIEVED,
+            created_at__lt=now - datetime.timedelta(seconds=retention_seconds),
+        ).delete()
+    except models.ProtectedError:
+        logger.warning('Some goals could not be deleted due to protected dependencies')
 
 
 class RetryMeLater:
