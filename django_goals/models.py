@@ -181,7 +181,7 @@ def worker(stop_event, max_transitions=None):
 
         if transitions_done == 0:
             # nothing could be done, let's go to sleep
-            logging.debug('Nothing to do, sleeping for a bit')
+            logger.debug('Nothing to do, sleeping for a bit')
             time.sleep(1)
 
     logger.info('Busy-wait worker exiting')
