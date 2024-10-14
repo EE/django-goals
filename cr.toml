@@ -1,0 +1,13 @@
+[cosmic-ray]
+module-path = "django_goals"
+timeout = 6.0
+excluded-modules = [
+    "**/migrations/**",
+    "**/*_tests.py",
+    "**/conftest.py",
+    "django_goals/factories.py",
+]
+test-command = "pytest"
+
+[cosmic-ray.distributor]
+name = "local"

@@ -1,0 +1,3 @@
+total jobs: 340
+complete: 340 (100.00%)
+surviving mutants: 149 (43.82%)
