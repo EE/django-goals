@@ -1,0 +1,20 @@
+name: Set up python environment
+runs:
+  using: composite
+  steps:
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+
+    - name: Install Python dependencies
+      shell: bash
+      run: poetry install --sync
+
+    - name: Configure django settings
+      shell: bash
+      run: cp example.env .env
