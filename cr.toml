@@ -1,6 +1,6 @@
 [cosmic-ray]
 module-path = "django_goals"
-timeout = 6.0
+timeout = 20.0
 excluded-modules = [
     "**/migrations/**",
     "**/*_tests.py",
@@ -10,4 +10,16 @@ excluded-modules = [
 test-command = "pytest"
 
 [cosmic-ray.distributor]
-name = "local"
+name = "http"
+
+[cosmic-ray.distributor.http]
+worker-urls = [
+    "http://localhost:9876",
+    "http://localhost:9877",
+    "http://localhost:9878",
+    "http://localhost:9879",
+    "http://localhost:9880",
+    "http://localhost:9881",
+    "http://localhost:9882",
+    "http://localhost:9883",
+]
