@@ -1,12 +1,10 @@
-name: Python application test with pytest
+name: Mutation testing with Cosmic Ray
 
 on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   build:
@@ -34,7 +32,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/python
 
-      - name: Run pytest
-        run: poetry run pytest
-        env:
-          DATABASE_URL: postgresql://postgres:postgrespass@localhost:5432/django_goals
+      - run: |
+          sed -i 's/DATABASE_URL=*.//' .env
+          echo "DATABASE_URL=postgresql://postgres:postgrespass@localhost:5432/django_goals" >> .env
+
+      - name: Run cosmic ray
+        run: poetry run bash cr.sh
+
+      - name: Store html report
+        uses: actions/upload-artifact@v4
+        with:
+          name: cr-html-${{ github.sha }}
+          path: cr.html
