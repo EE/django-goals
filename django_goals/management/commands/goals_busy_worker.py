@@ -11,14 +11,14 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--max-transitions',
+            '--max-progress-count',
             type=int,
-            default=None,
-            help='Exit when about this many goals state transitions are made by the worker',
+            default=float('inf'),
+            help='Exit when this many progress records are created',
         )
 
-    def handle(self, *args, max_transitions=None, **options):
+    def handle(self, *args, max_progress_count, **options):
         stop_event = threading.Event()
         signal.signal(signal.SIGINT, lambda signum, frame: stop_event.set())
         signal.signal(signal.SIGTERM, lambda signum, frame: stop_event.set())
-        worker(stop_event, max_transitions=max_transitions)
+        worker(stop_event, max_progress_count=max_progress_count)

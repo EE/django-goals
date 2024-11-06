@@ -155,7 +155,7 @@ class GoalProgress(models.Model):
         ordering = ('goal', '-created_at')
 
 
-def worker(stop_event, max_transitions=None):
+def worker(stop_event, max_progress_count=float('inf')):
     """
     Worker is a busy-wait function that will keep checking for goals to pursue.
     It will keep running until stop_event is set.
@@ -165,21 +165,22 @@ def worker(stop_event, max_transitions=None):
     3. Check if there are goals that are waiting for worker and pick one to pursue.
     4. If nothing could be done, sleep for a bit.
     5. Repeat until stop_event is set.
-    transitions_done is a counter of how many goals changed their state during the turn.
     """
     logger.info('Busy-wait worker started')
-    total_transitions_done = 0
+    progress_count = 0
     while not stop_event.is_set():
+        if progress_count >= max_progress_count:
+            logger.info('Max transitions reached, exiting')
+            break
+
         now = timezone.now()
-        transitions_done = worker_turn(now)
+        transitions_done, local_progress_count = worker_turn(
+            now,
+            max_progress_count=max_progress_count - progress_count,
+        )
+        progress_count += local_progress_count
 
-        if max_transitions is not None:
-            total_transitions_done += transitions_done
-            if total_transitions_done >= max_transitions:
-                logger.info('Max transitions reached, exiting')
-                break
-
-        if transitions_done == 0:
+        if transitions_done == 0 and local_progress_count == 0:
             # nothing could be done, let's go to sleep
             logger.debug('Nothing to do, sleeping for a bit')
             time.sleep(1)
@@ -187,22 +188,27 @@ def worker(stop_event, max_transitions=None):
     logger.info('Busy-wait worker exiting')
 
 
-def worker_turn(now):
+def worker_turn(now, max_progress_count=float('inf')):
     """
     Worker turn is a single iteration of the worker.
     It will try to transition as many goals as possible.
-    Returns a number of transitions done.
+    Returns a number of transitions done (all state changes)
+    and a number of progress transitions done (real handler calls).
     """
     transitions_done = 0
     transitions_done += handle_waiting_for_date(now)
     transitions_done += handle_waiting_for_preconditions()
+    progress_count = 0
     while True:
+        if progress_count >= max_progress_count:
+            break
         did_a_thing = handle_waiting_for_worker_guarded()
         if not did_a_thing:
             break
         transitions_done += 1
+        progress_count += 1
     remove_old_goals(now)
-    return transitions_done
+    return transitions_done, progress_count
 
 
 def handle_waiting_for_worker_guarded():

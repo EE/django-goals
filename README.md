@@ -99,15 +99,15 @@ python manage.py goals_busy_worker
 You can instruct the worker to exit after some work is done. Useful for minimizing impact of memory leaks.
 
 ```bash
-python manage.py goals_busy_worker --max-transitions 100
+python manage.py goals_busy_worker --max-progress-count 100
 ```
 
-Transitions are not only handler calls, but all goal state changes performed by worker.
+"Progress" is a single handler call, including failures (transaction recoverable errors) and "corruptions" (transaction non-recoverable errors).
 
 A quick way to replace exited workers is to use `yes | xargs -P <how many workers>`
 
 ```bash
-yes | xargs -I -L1 -P4 -- ./manage.py goals_busy_worker --max-transitions 100
+yes | xargs -I -L1 -P4 -- ./manage.py goals_busy_worker --max-progress-count 100
 ```
 
 #### Blocking Worker

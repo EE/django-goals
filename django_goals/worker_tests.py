@@ -20,7 +20,7 @@ from .models import (
 def test_worker_turn_noop():
     now = timezone.now()
     transitions_done = worker_turn(now)
-    assert transitions_done == 0
+    assert transitions_done == (0, 0)
 
 
 @pytest.mark.django_db
@@ -180,9 +180,13 @@ def trigger_database_error(goal):
 @pytest.mark.django_db(transaction=True)
 def test_transaction_error_in_goal():
     goal = schedule(trigger_database_error)
-    worker_turn(timezone.now())
+    trasitions_count, progress_count = worker_turn(timezone.now())
+    assert trasitions_count == 1
+    assert progress_count == 1  # we called a handler and we must report it
     goal.refresh_from_db()
     assert goal.state == GoalState.CORRUPTED
+    # progress record is not created
+    assert not goal.progress.exists()
 
 
 @pytest.mark.django_db
