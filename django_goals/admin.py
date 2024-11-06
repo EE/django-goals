@@ -72,6 +72,7 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
         'handler',
         'instructions_pre',
         'precondition_date',
+        'deadline',
         'created_at',
     )
     inlines = (

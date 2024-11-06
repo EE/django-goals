@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                 ('state', models.CharField(choices=[('blocked', 'Blocked'), ('waiting_for_date', 'Waiting For Date'), ('waiting_for_preconditions', 'Waiting For Preconditions'), ('waiting_for_worker', 'Waiting For Worker'), ('achieved', 'Achieved'), ('given_up', 'Given Up'), ('corrupted', 'Corrupted'), ('not_going_to_happen_soon', 'Not Going To Happen Soon')], db_index=True, default='waiting_for_date', max_length=30)),
                 ('handler', models.CharField(max_length=100)),
                 ('instructions', models.JSONField(null=True)),
-                ('precondition_date', models.DateTimeField(default=django.utils.timezone.now, help_text='Goal will not be pursued before this date. Also used as priority for goals that are waiting for worker - goals with earlier date will be preferred.')),
+                ('precondition_date', models.DateTimeField(default=django.utils.timezone.now, help_text='Goal will not be pursued before this date.')),
                 ('created_at', models.DateTimeField(db_index=True, default=django.utils.timezone.now)),
             ],
             options={

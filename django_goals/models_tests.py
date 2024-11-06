@@ -1,8 +1,11 @@
+import datetime
+
 import pytest
 
 from .factories import GoalFactory
 from .models import (
     GoalState, get_dependent_goal_ids, handle_waiting_for_worker_guarded,
+    schedule,
 )
 
 
@@ -54,3 +57,17 @@ def test_handle_waiting_for_worker_guarded_updates_dependent_goals(goal):
     handle_waiting_for_worker_guarded()
     next_goal.refresh_from_db()
     assert next_goal.state == GoalState.WAITING_FOR_WORKER
+
+
+@pytest.mark.django_db
+def test_schedule_updates_deadline():
+    now = datetime.datetime(2024, 11, 6, 11, 41, 0, tzinfo=datetime.timezone.utc)
+    goal_a = GoalFactory(deadline=now)
+    goal_b = GoalFactory(precondition_goals=[goal_a])
+    schedule(
+        noop,
+        deadline=now - datetime.timedelta(minutes=1),
+        precondition_goals=[goal_b],
+    )
+    goal_a.refresh_from_db()
+    assert goal_a.deadline == now - datetime.timedelta(minutes=1)

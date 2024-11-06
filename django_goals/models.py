@@ -6,6 +6,7 @@ import uuid
 
 from django.conf import settings
 from django.db import connections, models, transaction
+from django.db.models.functions import Least
 from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
@@ -49,11 +50,7 @@ class Goal(models.Model):
     instructions = models.JSONField(null=True)
     precondition_date = models.DateTimeField(
         default=timezone.now,
-        help_text=_(
-            'Goal will not be pursued before this date. '
-            'Also used as priority for goals that are waiting for worker - '
-            'goals with earlier date will be preferred.'
-        ),
+        help_text=_('Goal will not be pursued before this date.'),
     )
     precondition_goals = models.ManyToManyField(
         to='self',
@@ -61,6 +58,10 @@ class Goal(models.Model):
         related_name='dependent_goals',
         through='GoalDependency',
         blank=True,
+    )
+    deadline = models.DateTimeField(
+        default=timezone.now,
+        help_text=_('Goals having deadline sooner will be pursued first.'),
     )
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
 
@@ -73,7 +74,7 @@ class Goal(models.Model):
                 name='goals_waiting_for_date_idx',
             ),
             models.Index(
-                fields=['precondition_date'],
+                fields=['deadline'],
                 condition=models.Q(state=GoalState.WAITING_FOR_WORKER),
                 name='goals_waiting_for_worker_idx',
             ),
@@ -318,7 +319,7 @@ def handle_waiting_for_worker():
     now = timezone.now()
     # Get the first goal that is waiting for a worker
     goal = Goal.objects.filter(state=GoalState.WAITING_FOR_WORKER).order_by(
-        'precondition_date',
+        'deadline',
     ).select_for_update(
         skip_locked=True,
         no_key=True,
@@ -355,9 +356,7 @@ def handle_waiting_for_worker():
             goal.state = GoalState.WAITING_FOR_DATE
             if ret.precondition_date is not None:
                 goal.precondition_date = max(goal.precondition_date, ret.precondition_date)
-            goal.precondition_goals.add(*ret.precondition_goals)
-            # move scheduled time forward to avoid starving other goals, in the case this one wants to be retried often
-            goal.precondition_date = max(goal.precondition_date, now)
+            add_precondition_goals(goal, ret.precondition_goals)
 
         elif isinstance(ret, AllDone):
             logger.info('Goal %s was achieved', goal.id)
@@ -457,6 +456,7 @@ class AllDone:
 def schedule(
     func, args=None, kwargs=None,
     precondition_date=None, precondition_goals=None, blocked=False,
+    deadline=None,
     listen=False,
 ):
     """
@@ -486,23 +486,45 @@ def schedule(
         state = GoalState.BLOCKED
     func_name = inspect.getmodule(func).__name__ + '.' + func.__name__
 
+    if deadline is None:
+        deadline = timezone.now()
+
     goal = Goal(
         state=state,
         handler=func_name,
         instructions=instructions,
         precondition_date=precondition_date,
+        deadline=deadline,
     )
     if listen:
         listen_goal_progress(goal.id)
 
     with transaction.atomic():
         goal.save()
-        goal.precondition_goals.set(precondition_goals)
+        add_precondition_goals(goal, precondition_goals)
         if state == GoalState.WAITING_FOR_WORKER:
             with connections['default'].cursor() as cursor:
                 notify_goal_waiting_for_worker(cursor, goal.id)
 
     return goal
+
+
+def add_precondition_goals(goal, precondition_goals):
+    goal.precondition_goals.add(*precondition_goals)
+    update_goals_deadline(goal.precondition_goals.all(), goal.deadline)
+
+
+def update_goals_deadline(goals_qs, deadline):
+    goals_to_be_updated = list(goals_qs.filter(
+        deadline__gt=deadline,
+    ).exclude(
+        state=GoalState.ACHIEVED,
+    ))
+    Goal.objects.filter(
+        id__in=[goal.id for goal in goals_to_be_updated],
+    ).update(deadline=Least('deadline', models.Value(deadline)))
+    for goal in goals_to_be_updated:
+        update_goals_deadline(goal.precondition_goals.all(), deadline)
 
 
 def notify_goal_waiting_for_worker(cursor, goal_id):
