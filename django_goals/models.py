@@ -487,7 +487,10 @@ def schedule(
     func_name = inspect.getmodule(func).__name__ + '.' + func.__name__
 
     if deadline is None:
-        deadline = timezone.now()
+        default_deadline_delta = datetime.timedelta(
+            seconds=getattr(settings, 'GOALS_DEFAULT_DEADLINE_SECONDS', 7 * 24 * 60 * 60),
+        )
+        deadline = timezone.now() + default_deadline_delta
 
     goal = Goal(
         state=state,

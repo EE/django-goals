@@ -142,6 +142,8 @@ The state transitions are managed automatically based on the preconditions and t
 
 `GOALS_RETENTION_SECONDS` - Number of seconds to keep achieved goals in the database for. Set to `None` to keep them indefinitely. Default is `60 * 60 * 24 * 7` (1 week).
 
+`GOALS_DEFAULT_DEADLINE_SECONDS` - If the `schedule` function is called without a `deadline` argument, it is assigned deadline of `now() + timedelta(seconds=GOALS_DEFAULT_DEADLINE_SECONDS)`. Default is `60 * 60 * 24 * 7` (1 week).
+
 ## A real-life example: use Django Goals in e-commerce
 
 Imagine you have a Django application for an e-commerce site. You want to send a follow-up email to customers who haven't completed their purchase after adding items to their cart. This email should only be sent if certain conditions are met (e.g., a specific time has passed since the items were added to the cart).
