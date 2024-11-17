@@ -189,8 +189,8 @@ def test_transaction_error_in_goal():
     assert not goal.progress.exists()
 
 
-def use_lots_of_memory(goal):
-    b'x' * 1024 * 1024 * 128  # 128 MiB
+def use_lots_of_memory(goal):  # pylint: disable=unused-argument
+    _unused = b'x' * 1024 * 1024 * 128  # 128 MiB  # noqa
     return AllDone()
 
 
@@ -206,6 +206,8 @@ def use_lots_of_memory(goal):
 )
 def test_memory_limit(settings, memory_limit, expected_success):
     settings.GOALS_MEMORY_LIMIT_MIB = memory_limit
+    # simulate we have some memory allocated outside of the goal handler
+    _unused = b'x' * 1024 * 1024 * 2  # 2 MiB  # noqa
     goal = schedule(use_lots_of_memory)
     worker_turn(timezone.now())
     goal.refresh_from_db()

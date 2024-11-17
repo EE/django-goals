@@ -1,12 +1,8 @@
 import gc
-import logging
 import resource
 from contextlib import contextmanager
 
 from django.conf import settings
-
-
-logger = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -20,7 +16,6 @@ def limit_memory():
         resource.setrlimit(resource.RLIMIT_AS, (limit_mib * 1024 * 1024, original_limit_hard))
         yield
     except MemoryError:
-        logger.exception('Memory limit exceeded')
         gc.collect()
         raise
     finally:
