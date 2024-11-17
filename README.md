@@ -144,7 +144,7 @@ The state transitions are managed automatically based on the preconditions and t
 
 `GOALS_DEFAULT_DEADLINE_SECONDS` - If the `schedule` function is called without a `deadline` argument, it is assigned deadline of `now() + timedelta(seconds=GOALS_DEFAULT_DEADLINE_SECONDS)`. Default is `60 * 60 * 24 * 7` (1 week).
 
-`GOALS_GOALS_MEMORY_LIMIT_MIB` - Maximum memory usage of a worker process. This is enforced using `resource` python module. Set to `None` to disable the limit. Default is `None`.
+`GOALS_MEMORY_LIMIT_MIB` - Maximum memory usage of a worker process. This is enforced using `resource` python module. Set to `None` to disable the limit. Default is `None`.
 
 ## A real-life example: use Django Goals in e-commerce
 
