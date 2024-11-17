@@ -11,6 +11,8 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 
+from .memory import limit_memory
+
 
 logger = logging.getLogger(__name__)
 
@@ -394,6 +396,7 @@ def handle_waiting_for_worker():
     return progress
 
 
+@limit_memory()
 def follow_instructions(goal):
     """
     Call the handler function with instructions.

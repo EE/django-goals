@@ -10,7 +10,7 @@ from example_app.models import GoalRelatedModel
 from .blocking_worker import listen_goal_waiting_for_worker
 from .factories import GoalFactory, GoalProgressFactory
 from .models import (
-    Goal, GoalState, RetryMeLater, RetryMeLaterException,
+    AllDone, Goal, GoalState, RetryMeLater, RetryMeLaterException,
     handle_waiting_for_preconditions, handle_waiting_for_worker, schedule,
     worker_turn,
 )
@@ -187,6 +187,32 @@ def test_transaction_error_in_goal():
     assert goal.state == GoalState.CORRUPTED
     # progress record is not created
     assert not goal.progress.exists()
+
+
+def use_lots_of_memory(goal):
+    b'x' * 1024 * 1024 * 128  # 128 MiB
+    return AllDone()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('memory_limit', 'expected_success'),
+    [
+        (None, True),
+        (1, False),
+        (128, False),
+        (256, True),
+    ],
+)
+def test_memory_limit(settings, memory_limit, expected_success):
+    settings.GOALS_MEMORY_LIMIT_MIB = memory_limit
+    goal = schedule(use_lots_of_memory)
+    worker_turn(timezone.now())
+    goal.refresh_from_db()
+    expected_state = GoalState.ACHIEVED if expected_success else GoalState.WAITING_FOR_DATE
+    assert goal.state == expected_state
+    progress = goal.progress.get()
+    assert progress.success == expected_success
 
 
 @pytest.mark.django_db
