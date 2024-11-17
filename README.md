@@ -146,6 +146,8 @@ The state transitions are managed automatically based on the preconditions and t
 
 `GOALS_MEMORY_LIMIT_MIB` - Maximum memory usage of a worker process. This is enforced using `resource` python module. Set to `None` to disable the limit. Default is `None`.
 
+`GOALS_TIME_LIMIT_SECONDS` - Maximum time a handler function can run. If the handler function runs longer than this, it is terminated. Default is `None` (no limit).
+
 ## A real-life example: use Django Goals in e-commerce
 
 Imagine you have a Django application for an e-commerce site. You want to send a follow-up email to customers who haven't completed their purchase after adding items to their cart. This email should only be sent if certain conditions are met (e.g., a specific time has passed since the items were added to the cart).

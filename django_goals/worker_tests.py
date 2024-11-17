@@ -1,4 +1,5 @@
 import datetime
+import time
 from unittest import mock
 
 import pytest
@@ -209,6 +210,31 @@ def test_memory_limit(settings, memory_limit, expected_success):
     # simulate we have some memory allocated outside of the goal handler
     _unused = b'x' * 1024 * 1024 * 2  # 2 MiB  # noqa
     goal = schedule(use_lots_of_memory)
+    worker_turn(timezone.now())
+    goal.refresh_from_db()
+    expected_state = GoalState.ACHIEVED if expected_success else GoalState.WAITING_FOR_DATE
+    assert goal.state == expected_state
+    progress = goal.progress.get()
+    assert progress.success == expected_success
+
+
+def take_too_long(goal):  # pylint: disable=unused-argument
+    time.sleep(2)
+    return AllDone()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('time_limit', 'expected_success'),
+    [
+        (None, True),
+        (1, False),
+        (3, True),
+    ],
+)
+def test_time_limit(settings, time_limit, expected_success):
+    settings.GOALS_TIME_LIMIT_SECONDS = time_limit
+    goal = schedule(take_too_long)
     worker_turn(timezone.now())
     goal.refresh_from_db()
     expected_state = GoalState.ACHIEVED if expected_success else GoalState.WAITING_FOR_DATE
