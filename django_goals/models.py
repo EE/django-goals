@@ -313,6 +313,9 @@ def handle_waiting_for_preconditions(goals_qs=None):
     return transitions_done
 
 
+current_goal = None
+
+
 @transaction.atomic
 def handle_waiting_for_worker():
     """
@@ -329,6 +332,10 @@ def handle_waiting_for_worker():
     if goal is None:
         # nothing to do
         return None
+
+    global current_goal
+    assert current_goal is None
+    current_goal = goal
 
     logger.info('Just about to pursue goal %s: %s', goal.id, goal.handler)
     start_time = time.monotonic()
@@ -373,6 +380,8 @@ def handle_waiting_for_worker():
             goal.state = GoalState.ACHIEVED
 
     time_taken = time.monotonic() - start_time
+
+    current_goal = None
 
     progress = goal.progress.create(
         success=success,
@@ -490,7 +499,9 @@ def schedule(
         state = GoalState.BLOCKED
     func_name = inspect.getmodule(func).__name__ + '.' + func.__name__
 
-    if deadline is None:
+    if deadline is None and current_goal is not None:
+        deadline = current_goal.deadline
+    elif deadline is None:
         default_deadline_delta = datetime.timedelta(
             seconds=getattr(settings, 'GOALS_DEFAULT_DEADLINE_SECONDS', 7 * 24 * 60 * 60),
         )

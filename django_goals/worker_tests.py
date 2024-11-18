@@ -291,3 +291,17 @@ def test_protected_old_achieved_goal():
     assert warning.call_count == 1
     assert 'old goals' in warning.call_args[0][0]
     assert 'protected' in str(warning.call_args[0][1])
+
+
+def schedule_another(goal):
+    schedule(schedule_another, blocked=True)
+    return AllDone()
+
+
+@pytest.mark.django_db
+def test_deadline_is_inherited():
+    now = timezone.now()
+    goal = schedule(schedule_another, deadline=now + timezone.timedelta(days=1))
+    worker_turn(now)
+    another_goal = Goal.objects.exclude(id=goal.id).get()
+    assert another_goal.deadline == goal.deadline
