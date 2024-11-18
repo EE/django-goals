@@ -313,9 +313,6 @@ def handle_waiting_for_preconditions(goals_qs=None):
     return transitions_done
 
 
-current_goal = None
-
-
 @transaction.atomic
 def handle_waiting_for_worker():
     """
@@ -332,10 +329,6 @@ def handle_waiting_for_worker():
     if goal is None:
         # nothing to do
         return None
-
-    global current_goal
-    assert current_goal is None
-    current_goal = goal
 
     logger.info('Just about to pursue goal %s: %s', goal.id, goal.handler)
     start_time = time.monotonic()
@@ -381,8 +374,6 @@ def handle_waiting_for_worker():
 
     time_taken = time.monotonic() - start_time
 
-    current_goal = None
-
     progress = goal.progress.create(
         success=success,
         created_at=now,
@@ -405,6 +396,9 @@ def handle_waiting_for_worker():
     return progress
 
 
+current_goal = None
+
+
 @limit_time()
 @limit_memory()
 def follow_instructions(goal):
@@ -415,11 +409,17 @@ def follow_instructions(goal):
     instructions = goal.instructions
     if instructions is None:
         instructions = {}
-    return func(
-        goal,
-        *instructions.get('args', ()),
-        **instructions.get('kwargs', {}),
-    )
+    global current_goal
+    assert current_goal is None
+    current_goal = goal
+    try:
+        return func(
+            goal,
+            *instructions.get('args', ()),
+            **instructions.get('kwargs', {}),
+        )
+    finally:
+        current_goal = None
 
 
 def get_retry_delay(failure_index):
