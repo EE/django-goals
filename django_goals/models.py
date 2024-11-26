@@ -159,7 +159,7 @@ class GoalProgress(models.Model):
         ordering = ('goal', '-created_at')
 
 
-def worker(stop_event, max_progress_count=float('inf')):
+def worker(stop_event, max_progress_count=float('inf'), once=False):
     """
     Worker is a busy-wait function that will keep checking for goals to pursue.
     It will keep running until stop_event is set.
@@ -185,6 +185,9 @@ def worker(stop_event, max_progress_count=float('inf')):
         progress_count += local_progress_count
 
         if transitions_done == 0 and local_progress_count == 0:
+            if once:
+                logger.info('Nothing to do, exiting because of `once` flag')
+                break
             # nothing could be done, let's go to sleep
             logger.debug('Nothing to do, sleeping for a bit')
             time.sleep(1)
@@ -397,8 +400,12 @@ def handle_waiting_for_worker():
     return progress
 
 
-thread_local = threading.local()
-thread_local.current_goal = None
+class GoalsThreadLocal(threading.local):
+    def __init__(self):
+        self.current_goal = None
+
+
+thread_local = GoalsThreadLocal()
 
 
 @limit_time()
