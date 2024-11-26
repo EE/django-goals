@@ -1,6 +1,7 @@
 import datetime
 import inspect
 import logging
+import threading
 import time
 import uuid
 
@@ -396,7 +397,8 @@ def handle_waiting_for_worker():
     return progress
 
 
-current_goal = None
+thread_local = threading.local()
+thread_local.current_goal = None
 
 
 @limit_time()
@@ -409,9 +411,8 @@ def follow_instructions(goal):
     instructions = goal.instructions
     if instructions is None:
         instructions = {}
-    global current_goal
-    assert current_goal is None
-    current_goal = goal
+    assert thread_local.current_goal is None
+    thread_local.current_goal = goal
     try:
         return func(
             goal,
@@ -419,7 +420,7 @@ def follow_instructions(goal):
             **instructions.get('kwargs', {}),
         )
     finally:
-        current_goal = None
+        thread_local.current_goal = None
 
 
 def get_retry_delay(failure_index):
@@ -499,8 +500,8 @@ def schedule(
         state = GoalState.BLOCKED
     func_name = inspect.getmodule(func).__name__ + '.' + func.__name__
 
-    if deadline is None and current_goal is not None:
-        deadline = current_goal.deadline
+    if deadline is None and thread_local.current_goal is not None:
+        deadline = thread_local.current_goal.deadline
     elif deadline is None:
         default_deadline_delta = datetime.timedelta(
             seconds=getattr(settings, 'GOALS_DEFAULT_DEADLINE_SECONDS', 7 * 24 * 60 * 60),

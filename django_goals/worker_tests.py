@@ -12,8 +12,8 @@ from .blocking_worker import listen_goal_waiting_for_worker
 from .factories import GoalFactory, GoalProgressFactory
 from .models import (
     AllDone, Goal, GoalState, RetryMeLater, RetryMeLaterException,
-    current_goal, handle_waiting_for_preconditions, handle_waiting_for_worker,
-    schedule, worker_turn,
+    handle_waiting_for_preconditions, handle_waiting_for_worker, schedule,
+    thread_local, worker_turn,
 )
 
 
@@ -188,7 +188,7 @@ def test_transaction_error_in_goal():
     assert goal.state == GoalState.CORRUPTED
     # progress record is not created
     assert not goal.progress.exists()
-    assert current_goal is None
+    assert thread_local.current_goal is None
 
 
 def use_lots_of_memory(goal):  # pylint: disable=unused-argument
