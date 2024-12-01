@@ -74,6 +74,7 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
         'precondition_date',
         'deadline',
         'created_at',
+        'related_objects',
     )
     inlines = (
         GoalDependencyInline,
@@ -108,6 +109,37 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
         return format_html(
             '<pre style="white-space: pre-wrap;">{}</pre>',
             json.dumps(obj.instructions, indent=2),
+        )
+
+    @admin.display(description='Related Objects')
+    def related_objects(self, obj):
+        related_objects = []
+        for field in obj._meta._relation_tree:
+            if field.model._meta.app_label == 'django_goals':
+                continue
+            related_objects.extend(field.model.objects.filter(**{field.name: obj}))
+        rows_html = []
+        for related_object in related_objects:
+            row_html = format_html(
+                (
+                    '<tr>'
+                    '<td>{related_app}</td>'
+                    '<td>{related_model}</td>'
+                    '<td>{related_object}</td>'
+                    '</tr>'
+                ),
+                related_app=related_object._meta.app_label,
+                related_model=related_object._meta.verbose_name,
+                related_object=format_html(
+                    '<a href="{related_object_url}">{related_object}</a>',
+                    related_object_url=admin.site.url + related_object.get_admin_url(),
+                    related_object=related_object,
+                ),
+            )
+            rows_html.append(row_html)
+        return format_html(
+            '<table><tbody>{}</tbody></table>',
+            ''.join(rows_html),
         )
 
     @action(label=_('Retry'), methods=['POST'], button_type='form')
