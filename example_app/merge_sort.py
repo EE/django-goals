@@ -1,5 +1,6 @@
+from django.contrib import admin
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 
 from django_goals.models import AllDone, Goal, RetryMeLater, schedule
 from django_goals.utils import is_goal_completed
@@ -69,3 +70,26 @@ def ensure_sorted(goal):
     merge_sort.save(update_fields=['sorted_numbers'])
 
     return AllDone()
+
+
+@admin.register(MergeSort)
+class MergeSortAdmin(admin.ModelAdmin):
+    readonly_fields = (
+        'goal',
+        'subsort_a',
+        'subsort_b',
+        'sorted_numbers',
+    )
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if obj.goal is None:
+            with transaction.atomic():
+                obj.goal = schedule(ensure_sorted)
+                obj.save(update_fields=['goal'])

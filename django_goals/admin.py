@@ -2,7 +2,9 @@ import json
 
 from django.contrib import admin, messages
 from django.db import models
-from django.utils.html import format_html
+from django.urls import reverse
+from django.urls.exceptions import NoReverseMatch
+from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext as _
 from django_object_actions import DjangoObjectActions, action
 
@@ -113,33 +115,57 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     @admin.display(description='Related Objects')
     def related_objects(self, obj):
-        related_objects = []
+        rows_html = []
         for field in obj._meta._relation_tree:
             if field.model._meta.app_label == 'django_goals':
                 continue
-            related_objects.extend(field.model.objects.filter(**{field.name: obj}))
-        rows_html = []
-        for related_object in related_objects:
-            row_html = format_html(
-                (
-                    '<tr>'
-                    '<td>{related_app}</td>'
-                    '<td>{related_model}</td>'
-                    '<td>{related_object}</td>'
-                    '</tr>'
-                ),
-                related_app=related_object._meta.app_label,
-                related_model=related_object._meta.verbose_name,
-                related_object=format_html(
-                    '<a href="{related_object_url}">{related_object}</a>',
-                    related_object_url=admin.site.url + related_object.get_admin_url(),
-                    related_object=related_object,
-                ),
-            )
-            rows_html.append(row_html)
-        return format_html(
-            '<table><tbody>{}</tbody></table>',
-            ''.join(rows_html),
+            related_objects = field.model.objects.filter(**{field.name: obj})
+            for related_object in related_objects:
+                try:
+                    object_admin_url = reverse(
+                        f'admin:{related_object._meta.app_label}_{related_object._meta.model_name}_change',
+                        args=(related_object.pk,),
+                    )
+                except NoReverseMatch:
+                    object_link = format_html(
+                        '<span>{related_object}</span>',
+                        related_object=related_object,
+                    )
+                else:
+                    object_link = format_html(
+                        '<a href="{object_admin_url}">{related_object}</a>',
+                        object_admin_url=object_admin_url,
+                        related_object=related_object,
+                    )
+                row_html = format_html(
+                    (
+                        '<tr>'
+                        '<td>{related_app}</td>'
+                        '<td>{related_model}</td>'
+                        '<td>{related_field}</td>'
+                        '<td>{related_object}</td>'
+                        '</tr>'
+                    ),
+                    related_app=related_object._meta.app_label,
+                    related_model=related_object._meta.verbose_name,
+                    related_field=field.verbose_name,
+                    related_object=object_link,
+                )
+                rows_html.append(row_html)
+        return format_html_join(
+            '',
+            (
+                '<table>'
+                '<thead><tr>'
+                '<th>App</th>'
+                '<th>Model</th>'
+                '<th>Field</th>'
+                '<th>Object</th>'
+                '</tr></thead>'
+                '<tbody>{}</tbody>'
+                '</table>'
+            ),
+            ((row,) for row in rows_html),
         )
 
     @action(label=_('Retry'), methods=['POST'], button_type='form')
