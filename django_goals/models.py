@@ -184,9 +184,8 @@ def worker(stop_event=None, max_progress_count=float('inf'), once=False):
             logger.info('Max transitions reached, exiting')
             break
 
-        now = timezone.now()
         transitions_done, local_progress_count = worker_turn(
-            now,
+            stop_event=stop_event,
             max_progress_count=max_progress_count - progress_count,
         )
         progress_count += local_progress_count
@@ -202,18 +201,23 @@ def worker(stop_event=None, max_progress_count=float('inf'), once=False):
     logger.info('Busy-wait worker exiting')
 
 
-def worker_turn(now, max_progress_count=float('inf')):
+def worker_turn(now=None, stop_event=None, max_progress_count=float('inf')):
     """
     Worker turn is a single iteration of the worker.
     It will try to transition as many goals as possible.
     Returns a number of transitions done (all state changes)
     and a number of progress transitions done (real handler calls).
     """
+    if now is None:
+        now = timezone.now()
     transitions_done = 0
     transitions_done += handle_waiting_for_date(now)
     transitions_done += handle_waiting_for_preconditions()
     progress_count = 0
-    while True:
+    while (
+        stop_event is None or
+        not stop_event.is_set()
+    ):
         if progress_count >= max_progress_count:
             break
         did_a_thing = handle_waiting_for_worker_guarded()
