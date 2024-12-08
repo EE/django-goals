@@ -83,24 +83,50 @@ def test_handle_waiting_for_worker_failure(goal):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize('goal', [{'state': GoalState.WAITING_FOR_WORKER}], indirect=True)
+@pytest.mark.parametrize('goal', [{
+    'state': GoalState.WAITING_FOR_WORKER,
+    'waiting_for_count': 0,
+}], indirect=True)
 def test_handle_waiting_for_worker_retry(goal):
-    other_goal = GoalFactory()
+    other_goals = GoalFactory.create_batch(2, state=GoalState.WAITING_FOR_WORKER)
     precondition_date = timezone.now() + timezone.timedelta(days=1)
     with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
         follow_instructions.return_value = RetryMeLater(
             precondition_date=precondition_date,
-            precondition_goals=[other_goal],
+            precondition_goals=other_goals,
         )
         handle_waiting_for_worker()
 
     goal.refresh_from_db()
     assert goal.state == GoalState.WAITING_FOR_DATE
     assert goal.precondition_date == precondition_date
-    assert goal.precondition_goals.get() == other_goal
+    assert set(goal.precondition_goals.all()) == set(other_goals)
+    assert goal.waiting_for_count == 2
 
     progress = goal.progress.get()
     assert progress.success
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('goal', [{
+    'state': GoalState.WAITING_FOR_WORKER,
+    'waiting_for_count': 0,
+}], indirect=True)
+@pytest.mark.parametrize('already_present', [True, False])
+def test_handle_waiting_for_worker_retry_precond_already_present(goal, already_present):
+    precondition_goal = GoalFactory(state=GoalState.ACHIEVED)
+    if already_present:
+        goal.precondition_goals.add(precondition_goal)
+    with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
+        follow_instructions.return_value = RetryMeLater(
+            precondition_goals=[precondition_goal],
+        )
+        handle_waiting_for_worker()
+
+    goal.refresh_from_db()
+    assert goal.state == GoalState.WAITING_FOR_DATE
+    assert goal.precondition_goals.get() == precondition_goal
+    assert goal.waiting_for_count == 0
 
 
 @pytest.mark.django_db
@@ -136,26 +162,29 @@ def test_handle_waiting_for_worker_max_progress_exceeded(goal, settings):
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize('goal', [{
-    'state': GoalState.WAITING_FOR_PRECONDITIONS,
-}], indirect=True)
 @pytest.mark.parametrize(
-    ('precondition_goal_states', 'expected_state'),
+    ('goal', 'expected_state'),
     [
-        ([], GoalState.WAITING_FOR_WORKER),
-        ([GoalState.ACHIEVED], GoalState.WAITING_FOR_WORKER),
-        ([GoalState.ACHIEVED, GoalState.ACHIEVED], GoalState.WAITING_FOR_WORKER),
-        ([GoalState.ACHIEVED, GoalState.GIVEN_UP], GoalState.NOT_GOING_TO_HAPPEN_SOON),
-        ([GoalState.WAITING_FOR_DATE], GoalState.WAITING_FOR_PRECONDITIONS),
-        ([GoalState.BLOCKED], GoalState.NOT_GOING_TO_HAPPEN_SOON),
+        ({
+            'state': GoalState.WAITING_FOR_PRECONDITIONS,
+            'waiting_for_count': 0,
+        }, GoalState.WAITING_FOR_WORKER),
+        ({
+            'state': GoalState.WAITING_FOR_PRECONDITIONS,
+            'waiting_for_count': 1,
+        }, GoalState.WAITING_FOR_PRECONDITIONS),
+        ({
+            'state': GoalState.WAITING_FOR_PRECONDITIONS,
+            'waiting_for_count': -1,
+        }, GoalState.WAITING_FOR_WORKER),
+        ({
+            'state': GoalState.WAITING_FOR_DATE,
+            'waiting_for_count': 0,
+        }, GoalState.WAITING_FOR_DATE),
     ],
+    indirect=['goal'],
 )
-def test_handle_waiting_for_preconditions(goal, precondition_goal_states, expected_state, get_notifications):
-    precondition_goals = [
-        GoalFactory(state=state)
-        for state in precondition_goal_states
-    ]
-    goal.precondition_goals.set(precondition_goals)
+def test_handle_waiting_for_preconditions(goal, expected_state, get_notifications):
     listen_goal_waiting_for_worker()
 
     handle_waiting_for_preconditions()

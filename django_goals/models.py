@@ -81,6 +81,11 @@ class Goal(models.Model):
                 name='goals_waiting_for_date_idx',
             ),
             models.Index(
+                fields=['waiting_for_count'],
+                condition=models.Q(state=GoalState.WAITING_FOR_PRECONDITIONS),
+                name='goals_waiting_for_precond_idx',
+            ),
+            models.Index(
                 fields=['deadline'],
                 condition=models.Q(state=GoalState.WAITING_FOR_WORKER),
                 name='goals_waiting_for_worker_idx',
@@ -291,20 +296,10 @@ def handle_waiting_for_preconditions(goals_qs=None):
     with transaction.atomic():
         new_waiting_for_worker = goals_qs.filter(
             state=GoalState.WAITING_FOR_PRECONDITIONS,
-        ).annotate(
-            num_preconditions=models.Count('precondition_goals'),
-            num_achieved_preconditions=models.Count('precondition_goals', filter=models.Q(
-                precondition_goals__state=GoalState.ACHIEVED,
-            )),
-        ).filter(
-            num_preconditions=models.F('num_achieved_preconditions'),
-        )
-        # GROUP BY in the original query is not allowed with FOR UPDATE needed to lock rows.
-        # We need to wrap the original query.
-        new_waiting_for_worker = Goal.objects.filter(
-            id__in=new_waiting_for_worker,
+            waiting_for_count__lte=0,
         ).select_for_update(
             no_key=True,
+            skip_locked=True,
         ).values_list('id', flat=True)
         new_waiting_for_worker = list(new_waiting_for_worker)
         if new_waiting_for_worker:
