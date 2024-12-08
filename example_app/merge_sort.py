@@ -1,3 +1,5 @@
+import random
+
 from django.contrib import admin
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
@@ -50,7 +52,7 @@ def ensure_sorted(goal):
         return RetryMeLater(precondition_goals=[
             merge_sort.subsort_a.goal,
             merge_sort.subsort_b.goal,
-        ])
+        ], message='Waiting for subsorts to finish')
 
     # merge sorted subsorts
     a = merge_sort.subsort_a.sorted_numbers
@@ -93,3 +95,8 @@ class MergeSortAdmin(admin.ModelAdmin):
             with transaction.atomic():
                 obj.goal = schedule(ensure_sorted)
                 obj.save(update_fields=['goal'])
+
+    def get_changeform_initial_data(self, request):
+        return {
+            'numbers': [random.randint(0, 100) for _ in range(10)],
+        }

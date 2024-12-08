@@ -341,6 +341,11 @@ def handle_waiting_for_worker():
         # nothing to do
         return None
 
+    if now < goal.precondition_date:
+        logger.warning('Precondition date bug in goal %s. Precondition date is in the future', goal.id)
+    if goal.waiting_for_count != 0:
+        logger.warning('Waiting-for bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_count)
+
     logger.info('Just about to pursue goal %s: %s', goal.id, goal.handler)
     start_time = time.monotonic()
     try:
