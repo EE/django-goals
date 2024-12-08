@@ -53,10 +53,12 @@ def test_handle_waiting_for_worker_guarded_updates_dependent_goals(goal):
     next_goal = GoalFactory(
         state=GoalState.WAITING_FOR_PRECONDITIONS,
         precondition_goals=[goal],
+        waiting_for_count=1,
     )
     handle_waiting_for_worker_guarded()
     next_goal.refresh_from_db()
     assert next_goal.state == GoalState.WAITING_FOR_WORKER
+    assert next_goal.waiting_for_count == 0
 
 
 @pytest.mark.django_db
@@ -71,3 +73,17 @@ def test_schedule_updates_deadline():
     )
     goal_a.refresh_from_db()
     assert goal_a.deadline == now - datetime.timedelta(minutes=1)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('goal', 'expected_waiting_for'),
+    [
+        ({'state': GoalState.WAITING_FOR_WORKER}, 1),
+        ({'state': GoalState.ACHIEVED}, 0),
+    ],
+    indirect=['goal'],
+)
+def test_schedule_updates_waiting_for_count(goal, expected_waiting_for):
+    next_goal = schedule(noop, precondition_goals=[goal])
+    assert next_goal.waiting_for_count == expected_waiting_for

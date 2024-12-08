@@ -62,6 +62,10 @@ class Goal(models.Model):
         through='GoalDependency',
         blank=True,
     )
+    waiting_for_count = models.IntegerField(
+        default=0,
+        help_text=_('Number of precondition goals we are still waiting for.'),
+    )
     deadline = models.DateTimeField(
         default=timezone.now,
         help_text=_('Goals having deadline sooner will be pursued first.'),
@@ -381,6 +385,14 @@ def handle_waiting_for_worker():
 
     time_taken = time.monotonic() - start_time
 
+    # decrease waiting-for counter in dependent goals
+    if goal.state == GoalState.ACHIEVED:
+        Goal.objects.filter(
+            precondition_goals=goal,
+        ).update(
+            waiting_for_count=models.F('waiting_for_count') - 1,
+        )
+
     progress = goal.progress.create(
         success=success,
         created_at=now,
@@ -539,7 +551,24 @@ def schedule(
 
 
 def add_precondition_goals(goal, precondition_goals):
-    goal.precondition_goals.add(*precondition_goals)
+    if not precondition_goals:
+        return
+    # get a list of new preconditions, and make sure nobody is working on them
+    new_precondition_goals = list(Goal.objects.filter(
+        id__in=[g.id for g in precondition_goals],
+    ).exclude(
+        dependent_goals=goal,
+    ).select_for_update(no_key=True))
+    if not new_precondition_goals:
+        return
+    # add to our preconditions
+    goal.precondition_goals.add(*new_precondition_goals)
+    # update waiting-for counter
+    for precondition_goal in new_precondition_goals:
+        if precondition_goal.state != GoalState.ACHIEVED:
+            goal.waiting_for_count += 1
+    goal.save(update_fields=['waiting_for_count'])
+    # move deadline earlier for preconditions, if needed
     update_goals_deadline(goal.precondition_goals.all(), goal.deadline)
 
 
