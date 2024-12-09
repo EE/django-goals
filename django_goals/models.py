@@ -274,13 +274,21 @@ def _handle_corrupted_progress(exc):
     return goal
 
 
+@transaction.atomic
 def handle_waiting_for_date(now):
     """
     Transition goals that are waiting for precondition date and the date has come.
     """
-    return Goal.objects.filter(
+    qs = Goal.objects.filter(
         state=GoalState.WAITING_FOR_DATE,
         precondition_date__lte=now,
+    ).select_for_update(
+        skip_locked=True,
+        no_key=True,
+    )
+    ids = list(qs.values_list('id', flat=True))
+    return Goal.objects.filter(
+        id__in=ids,
     ).update(state=GoalState.WAITING_FOR_PRECONDITIONS)
 
 
