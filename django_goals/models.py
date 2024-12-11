@@ -111,15 +111,20 @@ class Goal(models.Model):
                 condition=models.Q(state=GoalState.WAITING_FOR_WORKER),
                 name='goals_waiting_for_worker_idx',
             ),
-            models.Index(
+            models.Index(  # for blocking goals that are waiting for blocked preconds
                 fields=['waiting_for_failed_count'],
                 condition=models.Q(state=GoalState.WAITING_FOR_PRECONDITIONS),
                 name='goals_waiting_for_failed_idx',
             ),
-            models.Index(
+            models.Index(  # for unblocking goals when preconditions becomes unblocked
                 fields=['waiting_for_failed_count'],
                 condition=models.Q(state=GoalState.NOT_GOING_TO_HAPPEN_SOON),
                 name='goals_unblocking_idx',
+            ),
+            models.Index(  # for deleting old done goals
+                fields=['created_at'],
+                condition=models.Q(state=GoalState.ACHIEVED),
+                name='goals_achieved_idx',
             ),
         ]
 
@@ -530,9 +535,12 @@ def remove_old_goals(now):
                 skip_locked=True,
             ).values_list('id', flat=True)
             ids_to_delete = list(ids_to_delete[:100])
+            if not ids_to_delete:
+                return
             GoalDependency.objects.filter(precondition_goal_id__in=ids_to_delete).delete()
             GoalDependency.objects.filter(dependent_goal_id__in=ids_to_delete).delete()
             Goal.objects.filter(id__in=ids_to_delete).delete()
+            logger.info('Deleted %s old, achieved goals', len(ids_to_delete))
     except models.ProtectedError as e:
         logger.warning('When cleaning old goals: %s', e)
 
