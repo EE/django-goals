@@ -37,6 +37,21 @@ class GoalState(models.TextChoices):
     NOT_GOING_TO_HAPPEN_SOON = 'not_going_to_happen_soon'
 
 
+NOT_GOING_TO_HAPPEN_SOON_STATES = (
+    GoalState.BLOCKED,
+    GoalState.GIVEN_UP,
+    GoalState.CORRUPTED,
+    GoalState.NOT_GOING_TO_HAPPEN_SOON,
+)
+
+
+WAITING_STATES = (
+    GoalState.WAITING_FOR_DATE,
+    GoalState.WAITING_FOR_PRECONDITIONS,
+    GoalState.WAITING_FOR_WORKER,
+)
+
+
 class Goal(models.Model):
     """
     Goal represents a state we want to achieve.
@@ -55,6 +70,7 @@ class Goal(models.Model):
         default=timezone.now,
         help_text=_('Goal will not be pursued before this date.'),
     )
+
     precondition_goals = models.ManyToManyField(
         to='self',
         symmetrical=False,
@@ -66,6 +82,11 @@ class Goal(models.Model):
         default=0,
         help_text=_('Number of precondition goals we are still waiting for.'),
     )
+    waiting_for_failed_count = models.IntegerField(
+        default=0,
+        help_text=_('Number of precondition goals that failed.'),
+    )
+
     deadline = models.DateTimeField(
         default=timezone.now,
         help_text=_('Goals having deadline sooner will be pursued first.'),
@@ -90,44 +111,17 @@ class Goal(models.Model):
                 condition=models.Q(state=GoalState.WAITING_FOR_WORKER),
                 name='goals_waiting_for_worker_idx',
             ),
+            models.Index(
+                fields=['waiting_for_failed_count'],
+                condition=models.Q(state=GoalState.WAITING_FOR_PRECONDITIONS),
+                name='goals_waiting_for_failed_idx',
+            ),
+            models.Index(
+                fields=['waiting_for_failed_count'],
+                condition=models.Q(state=GoalState.NOT_GOING_TO_HAPPEN_SOON),
+                name='goals_unblocking_idx',
+            ),
         ]
-
-    def block(self):
-        """
-        Mark the goal as blocked, so it will not be pursued.
-        """
-        if self.state not in (GoalState.WAITING_FOR_DATE, GoalState.WAITING_FOR_PRECONDITIONS):
-            raise ValueError(f'Cannot block goal in state {self.state}')
-        self.state = GoalState.BLOCKED
-        self.save(update_fields=['state'])
-
-    def unblock(self):
-        """
-        Mark the goal as unblocked, so it can be pursued again.
-        """
-        if self.state != GoalState.BLOCKED:
-            raise ValueError(f'Cannot unblock goal in state {self.state}')
-        self.state = GoalState.WAITING_FOR_DATE
-        self.save(update_fields=['state'])
-        Goal.objects.filter(
-            id__in=get_dependent_goal_ids([self.id]),
-            state=GoalState.NOT_GOING_TO_HAPPEN_SOON,
-        ).update(state=GoalState.WAITING_FOR_DATE)
-
-    def retry(self):
-        """
-        Mark the goal as ready to be pursued again.
-        """
-        if self.state not in (GoalState.GIVEN_UP, GoalState.CORRUPTED):
-            raise ValueError(f'Cannot retry goal in state {self.state}')
-        self.state = GoalState.WAITING_FOR_DATE
-        self.save(update_fields=['state'])
-        dependent_goal_ids = get_dependent_goal_ids([self.id])
-        Goal.objects.filter(
-            id__in=dependent_goal_ids,
-            state=GoalState.NOT_GOING_TO_HAPPEN_SOON,
-        ).update(state=GoalState.WAITING_FOR_DATE)
-        return dependent_goal_ids
 
 
 class GoalDependency(models.Model):
@@ -166,6 +160,63 @@ class GoalProgress(models.Model):
 
     class Meta:
         ordering = ('goal', '-created_at')
+
+
+@transaction.atomic
+def block_goal(goal_id):
+    """
+    Mark the goal as blocked, so it will not be pursued.
+    """
+    goal = Goal.objects.select_for_update().get(id=goal_id)
+    if goal.state not in WAITING_STATES:
+        raise ValueError(f'Cannot block goal in state {goal.state}')
+    _mark_as_failed([goal_id], target_state=GoalState.BLOCKED)
+    return goal
+
+
+@transaction.atomic
+def unblock_retry_goal(goal_id):
+    """
+    Mark the goal as unblocked, so it can be pursued again.
+    """
+    goal = Goal.objects.select_for_update().get(id=goal_id)
+    if goal.state not in NOT_GOING_TO_HAPPEN_SOON_STATES:
+        raise ValueError(f'Cannot unblock/retry goal in state {goal.state}')
+    _mark_as_unfailed([goal_id])
+    return goal
+
+
+def _mark_as_failed(goal_ids, target_state):
+    """
+    All goal must be in waititng state.
+    You must be in a transaction and have a lock on the goals.
+    """
+    assert target_state in NOT_GOING_TO_HAPPEN_SOON_STATES
+    if not goal_ids:
+        return
+    Goal.objects.filter(id__in=goal_ids).update(state=target_state)
+    # update waiting-for failed count in dependent goals
+    Goal.objects.filter(
+        precondition_goals__id__in=goal_ids,
+    ).update(
+        waiting_for_failed_count=models.F('waiting_for_failed_count') + 1,
+    )
+
+
+def _mark_as_unfailed(goal_ids):
+    """
+    All goal_ids must be in NOT_GOING_TO_HAPPEN_SOON_STATES.
+    You must be in a transaction and have a lock on the goals.
+    """
+    if not goal_ids:
+        return
+    Goal.objects.filter(id__in=goal_ids).update(state=GoalState.WAITING_FOR_DATE)
+    # update waiting-for failed count in dependent goals
+    Goal.objects.filter(
+        precondition_goals__id__in=goal_ids,
+    ).update(
+        waiting_for_failed_count=models.F('waiting_for_failed_count') - 1,
+    )
 
 
 def worker(stop_event=None, max_progress_count=float('inf'), once=False):
@@ -218,6 +269,8 @@ def worker_turn(now=None, stop_event=None, max_progress_count=float('inf')):
     transitions_done = 0
     transitions_done += handle_waiting_for_date(now)
     transitions_done += handle_waiting_for_preconditions()
+    transitions_done += handle_waiting_for_failed_preconditions()
+    transitions_done += handle_unblocked_goals()
     progress_count = 0
     while (
         stop_event is None or
@@ -225,53 +278,13 @@ def worker_turn(now=None, stop_event=None, max_progress_count=float('inf')):
     ):
         if progress_count >= max_progress_count:
             break
-        did_a_thing = handle_waiting_for_worker_guarded()
+        did_a_thing = handle_waiting_for_worker()
         if not did_a_thing:
             break
         transitions_done += 1
         progress_count += 1
     remove_old_goals(now)
     return transitions_done, progress_count
-
-
-def handle_waiting_for_worker_guarded():
-    """
-    Wrapper to catch exceptions and mark the goal as corrupted when it happens.
-    Some exceptions might be caught and handled by the inner function,
-    but transaction management error for example is not recoverable there.
-    We need to catch it outside the transaction.
-    """
-    changed_goal = None
-    try:
-        progress = handle_waiting_for_worker()
-    except Exception as e:  # pylint: disable=broad-except
-        logger.exception('Worker failed')
-        changed_goal = _handle_corrupted_progress(e)
-    else:
-        if progress is not None:
-            changed_goal = progress.goal
-    if changed_goal is not None:
-        handle_waiting_for_preconditions(Goal.objects.filter(
-            precondition_goals__id=changed_goal.id,
-        ))
-    return changed_goal is not None
-
-
-def _handle_corrupted_progress(exc):
-    """
-    Find the goal that caused the exception and mark it as corrupted.
-    """
-    traceback = exc.__traceback__
-    while traceback is not None:
-        frame = traceback.tb_frame
-        if frame.f_code.co_name == 'handle_waiting_for_worker':
-            break
-        traceback = traceback.tb_next
-    goal = frame.f_locals['goal']
-    with transaction.atomic():
-        Goal.objects.filter(id=goal.id).update(state=GoalState.CORRUPTED)
-        notify_goal_progress(goal.id, GoalState.CORRUPTED)
-    return goal
 
 
 @transaction.atomic
@@ -292,6 +305,7 @@ def handle_waiting_for_date(now):
     ).update(state=GoalState.WAITING_FOR_PRECONDITIONS)
 
 
+@transaction.atomic
 def handle_waiting_for_preconditions(goals_qs=None):
     """
     Transition goals that are waiting for precondition goals to be achieved
@@ -301,34 +315,61 @@ def handle_waiting_for_preconditions(goals_qs=None):
         goals_qs = Goal.objects.all()
     transitions_done = 0
 
-    with transaction.atomic():
-        new_waiting_for_worker = goals_qs.filter(
-            state=GoalState.WAITING_FOR_PRECONDITIONS,
-            waiting_for_count__lte=0,
-        ).select_for_update(
-            no_key=True,
-            skip_locked=True,
-        ).values_list('id', flat=True)
-        new_waiting_for_worker = list(new_waiting_for_worker)
-        if new_waiting_for_worker:
-            Goal.objects.filter(id__in=new_waiting_for_worker).update(state=GoalState.WAITING_FOR_WORKER)
-            with connections['default'].cursor() as cursor:
-                for goal_id in new_waiting_for_worker:
-                    notify_goal_waiting_for_worker(cursor, goal_id)
-        transitions_done += len(new_waiting_for_worker)
-
-    # if a goal is waiting for preconditions that are not going to happen soon, it's not going to happen soon either
-    transitions_done += goals_qs.filter(
+    new_waiting_for_worker = goals_qs.filter(
         state=GoalState.WAITING_FOR_PRECONDITIONS,
-        precondition_goals__state__in=(
-            GoalState.BLOCKED,
-            GoalState.GIVEN_UP,
-            GoalState.CORRUPTED,
-            GoalState.NOT_GOING_TO_HAPPEN_SOON,
-        ),
-    ).update(state=GoalState.NOT_GOING_TO_HAPPEN_SOON)
+        waiting_for_count__lte=0,
+    ).select_for_update(
+        no_key=True,
+        skip_locked=True,
+    ).values_list('id', flat=True)
+    new_waiting_for_worker = list(new_waiting_for_worker)
+    if new_waiting_for_worker:
+        Goal.objects.filter(id__in=new_waiting_for_worker).update(state=GoalState.WAITING_FOR_WORKER)
+        with connections['default'].cursor() as cursor:
+            for goal_id in new_waiting_for_worker:
+                notify_goal_waiting_for_worker(cursor, goal_id)
+    transitions_done += len(new_waiting_for_worker)
 
     return transitions_done
+
+
+@transaction.atomic
+def handle_waiting_for_failed_preconditions():
+    """
+    if a goal is waiting for preconditions that are failed, it's not going to happen soon
+    """
+    goals_qs = Goal.objects.all()
+    transitions_done = 0
+
+    new_failed = goals_qs.filter(
+        state=GoalState.WAITING_FOR_PRECONDITIONS,
+        waiting_for_failed_count__gt=0,
+    ).select_for_update(
+        no_key=True,
+        skip_locked=True,
+    ).values_list('id', flat=True)
+    new_failed = list(new_failed)
+    _mark_as_failed(new_failed, target_state=GoalState.NOT_GOING_TO_HAPPEN_SOON)
+    transitions_done += len(new_failed)
+
+    return transitions_done
+
+
+@transaction.atomic
+def handle_unblocked_goals():
+    """
+    Transition goals that have no failed preconditions, yet are marked as not going to happen soon.
+    """
+    qs = Goal.objects.filter(
+        state=GoalState.NOT_GOING_TO_HAPPEN_SOON,
+        waiting_for_failed_count__lte=0,
+    ).select_for_update(
+        skip_locked=True,
+        no_key=True,
+    )
+    ids = list(qs.values_list('id', flat=True))
+    _mark_as_unfailed(ids)
+    return len(ids)
 
 
 @transaction.atomic
@@ -352,14 +393,13 @@ def handle_waiting_for_worker():
         logger.warning('Precondition date bug in goal %s. Precondition date is in the future', goal.id)
     if goal.waiting_for_count != 0:
         logger.warning('Waiting-for bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_count)
+    if goal.waiting_for_failed_count != 0:
+        logger.warning('Waiting-for-failed bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_failed_count)
 
     logger.info('Just about to pursue goal %s: %s', goal.id, goal.handler)
     start_time = time.monotonic()
     try:
-        try:
-            ret = follow_instructions(goal)
-        except RetryMeLaterException as e:
-            ret = RetryMeLater(**e.__dict__)
+        ret = follow_instructions(goal)
 
     except Exception:  # pylint: disable=broad-except
         logger.exception('Goal %s failed', goal.id)
@@ -381,7 +421,7 @@ def handle_waiting_for_worker():
             goal.state = GoalState.WAITING_FOR_DATE
             if ret.precondition_date is not None:
                 goal.precondition_date = max(goal.precondition_date, ret.precondition_date)
-            add_precondition_goals(goal, ret.precondition_goals)
+            _add_precondition_goals(goal, ret.precondition_goals)
 
         elif isinstance(ret, AllDone):
             logger.info('Goal %s was achieved', goal.id)
@@ -422,6 +462,11 @@ def handle_waiting_for_worker():
         logger.warning('Goal %s reached max progress count, giving up', goal.id)
         goal.state = GoalState.GIVEN_UP
 
+    # incrase waiting-for failed count in dependent goals
+    if goal.state == GoalState.GIVEN_UP:
+        # goal.state will be saved twice, but it's fine
+        _mark_as_failed([goal.id], target_state=GoalState.GIVEN_UP)
+
     goal.save(update_fields=['state', 'precondition_date'])
     notify_goal_progress(goal.id, goal.state)
     return progress
@@ -437,6 +482,9 @@ thread_local = GoalsThreadLocal()
 
 @limit_time()
 @limit_memory()
+# This is a savepoint that protects worker transaction so that we can always report progress.
+# Raw error in trnsaction would prevent from executing any queries inside it.
+@transaction.atomic
 def follow_instructions(goal):
     """
     Call the handler function with instructions.
@@ -453,6 +501,8 @@ def follow_instructions(goal):
             *instructions.get('args', ()),
             **instructions.get('kwargs', {}),
         )
+    except RetryMeLaterException as e:
+        return RetryMeLater(**e.__dict__)
     finally:
         thread_local.current_goal = None
 
@@ -473,12 +523,16 @@ def remove_old_goals(now):
         return
     try:
         with transaction.atomic():
-            goals_to_delete = Goal.objects.filter(
+            ids_to_delete = Goal.objects.filter(
                 state=GoalState.ACHIEVED,
                 created_at__lt=now - datetime.timedelta(seconds=retention_seconds),
-            )
-            GoalDependency.objects.filter(precondition_goal__in=goals_to_delete).delete()
-            goals_to_delete.delete()
+            ).select_for_update(
+                skip_locked=True,
+            ).values_list('id', flat=True)
+            ids_to_delete = list(ids_to_delete[:100])
+            GoalDependency.objects.filter(precondition_goal_id__in=ids_to_delete).delete()
+            GoalDependency.objects.filter(dependent_goal_id__in=ids_to_delete).delete()
+            Goal.objects.filter(id__in=ids_to_delete).delete()
     except models.ProtectedError as e:
         logger.warning('When cleaning old goals: %s', e)
 
@@ -554,7 +608,7 @@ def schedule(
 
     with transaction.atomic():
         goal.save()
-        add_precondition_goals(goal, precondition_goals)
+        _add_precondition_goals(goal, precondition_goals)
         if state == GoalState.WAITING_FOR_WORKER:
             with connections['default'].cursor() as cursor:
                 notify_goal_waiting_for_worker(cursor, goal.id)
@@ -562,7 +616,7 @@ def schedule(
     return goal
 
 
-def add_precondition_goals(goal, precondition_goals):
+def _add_precondition_goals(goal, precondition_goals):
     if not precondition_goals:
         return
     # get a list of new preconditions, and make sure nobody is working on them
@@ -575,13 +629,17 @@ def add_precondition_goals(goal, precondition_goals):
         return
     # add to our preconditions
     goal.precondition_goals.add(*new_precondition_goals)
-    # update waiting-for counter
+    # update waiting-for counters
     for precondition_goal in new_precondition_goals:
         if precondition_goal.state != GoalState.ACHIEVED:
             goal.waiting_for_count += 1
-    goal.save(update_fields=['waiting_for_count'])
+        if precondition_goal.state in NOT_GOING_TO_HAPPEN_SOON_STATES:
+            goal.waiting_for_failed_count += 1
+    goal.save(update_fields=['waiting_for_count', 'waiting_for_failed_count'])
     # move deadline earlier for preconditions, if needed
-    update_goals_deadline(goal.precondition_goals.all(), goal.deadline)
+    update_goals_deadline(Goal.objects.filter(
+        id__in=[g.id for g in new_precondition_goals],
+    ), goal.deadline)
 
 
 def update_goals_deadline(goals_qs, deadline):
@@ -640,28 +698,3 @@ def wait():
     for notification in notification_generator:
         notification_generator.close()
     return notification  # pylint: disable=undefined-loop-variable
-
-
-def get_dependent_goal_ids(goal_ids):
-    """
-    Get the IDs of goals that depend on the given goals.
-    """
-    goal_ids = list(goal_ids)
-    qs = GoalDependency.objects.raw(
-        """
-        WITH RECURSIVE dependent_goals AS (
-            SELECT id FROM django_goals_goal
-            WHERE id = ANY(%(goal_ids)s)
-        UNION
-            SELECT django_goals_goal.id
-            FROM django_goals_goal
-            JOIN django_goals_goaldependency
-            ON django_goals_goal.id = django_goals_goaldependency.dependent_goal_id
-            JOIN dependent_goals
-            ON django_goals_goaldependency.precondition_goal_id = dependent_goals.id
-        )
-        SELECT id FROM dependent_goals
-        """,
-        {'goal_ids': goal_ids},
-    )
-    return [obj.id for obj in qs]

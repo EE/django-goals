@@ -8,7 +8,9 @@ from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext as _
 from django_object_actions import DjangoObjectActions, action
 
-from .models import Goal, GoalDependency, GoalProgress
+from .models import (
+    Goal, GoalDependency, GoalProgress, block_goal, unblock_retry_goal,
+)
 
 
 class GoalDependencyInline(admin.TabularInline):
@@ -78,6 +80,7 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
         'instructions_pre',
         'precondition_date',
         'waiting_for_count',
+        'waiting_for_failed_count',
         'deadline',
         'created_at',
         'related_objects',
@@ -87,9 +90,8 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
         GoalProgressInline,
     )
     change_actions = (
-        'retry',
         'block',
-        'unblock',
+        'unblock_retry',
     )
 
     def has_add_permission(self, request):
@@ -172,29 +174,20 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
             ((row,) for row in rows_html),
         )
 
-    @action(label=_('Retry'), methods=['POST'], button_type='form')
-    def retry(self, request, obj):
+    @action(label=_('Unblock / retry'), methods=['POST'], button_type='form')
+    def unblock_retry(self, request, obj):
         try:
-            obj.retry()
-        except ValueError as e:
-            self.message_user(request, str(e), level=messages.ERROR)
-        else:
-            self.message_user(request, _('Goal was retried'))
-
-    @action(label=_('Block'), methods=['POST'], button_type='form')
-    def block(self, request, obj):
-        try:
-            obj.block()
-        except ValueError as e:
-            self.message_user(request, str(e), level=messages.ERROR)
-        else:
-            self.message_user(request, _('Goal was blocked'))
-
-    @action(label=_('Unblock'), methods=['POST'], button_type='form')
-    def unblock(self, request, obj):
-        try:
-            obj.unblock()
+            unblock_retry_goal(obj.id)
         except ValueError as e:
             self.message_user(request, str(e), level=messages.ERROR)
         else:
             self.message_user(request, _('Goal was unblocked'))
+
+    @action(label=_('Block'), methods=['POST'], button_type='form')
+    def block(self, request, obj):
+        try:
+            block_goal(obj.id)
+        except ValueError as e:
+            self.message_user(request, str(e), level=messages.ERROR)
+        else:
+            self.message_user(request, _('Goal was blocked'))

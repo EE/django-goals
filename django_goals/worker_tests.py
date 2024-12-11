@@ -48,6 +48,11 @@ def test_handle_waiting_for_worker_return_value(goal):
     },
 }], indirect=True)
 def test_handle_waiting_for_worker_success(goal):
+    dependent_goal = GoalFactory(
+        waiting_for_count=42,
+        precondition_goals=[goal],
+    )
+
     with mock.patch('os.path.join') as func:
         func.return_value = {'aaa': 'im happy'}  # will be ignored
         handle_waiting_for_worker()
@@ -61,6 +66,10 @@ def test_handle_waiting_for_worker_success(goal):
     progress = goal.progress.get()
     assert progress.success
     assert progress.time_taken > datetime.timedelta(0)
+
+    # dependent goal is updated
+    dependent_goal.refresh_from_db()
+    assert dependent_goal.waiting_for_count == 41
 
 
 @pytest.mark.django_db
@@ -89,19 +98,21 @@ def test_handle_waiting_for_worker_failure(goal):
 }], indirect=True)
 def test_handle_waiting_for_worker_retry(goal):
     other_goals = GoalFactory.create_batch(2, state=GoalState.WAITING_FOR_WORKER)
+    failed_goals = GoalFactory.create_batch(1, state=GoalState.NOT_GOING_TO_HAPPEN_SOON)
     precondition_date = timezone.now() + timezone.timedelta(days=1)
     with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
         follow_instructions.return_value = RetryMeLater(
             precondition_date=precondition_date,
-            precondition_goals=other_goals,
+            precondition_goals=other_goals + failed_goals,
         )
         handle_waiting_for_worker()
 
     goal.refresh_from_db()
     assert goal.state == GoalState.WAITING_FOR_DATE
     assert goal.precondition_date == precondition_date
-    assert set(goal.precondition_goals.all()) == set(other_goals)
-    assert goal.waiting_for_count == 2
+    assert set(goal.precondition_goals.all()) == set(other_goals + failed_goals)
+    assert goal.waiting_for_count == 3
+    assert goal.waiting_for_failed_count == 1
 
     progress = goal.progress.get()
     assert progress.success
@@ -130,11 +141,14 @@ def test_handle_waiting_for_worker_retry_precond_already_present(goal, already_p
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize('goal', [{'state': GoalState.WAITING_FOR_WORKER}], indirect=True)
+@pytest.mark.parametrize('goal', [{
+    'state': GoalState.WAITING_FOR_WORKER,
+    'handler': 'os.path.join',
+}], indirect=True)
 def test_handle_waiting_for_worker_retry_by_exception(goal):
     precondition_date = timezone.now() + timezone.timedelta(days=1)
-    with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
-        follow_instructions.side_effect = RetryMeLaterException(
+    with mock.patch('os.path.join') as handler:
+        handler.side_effect = RetryMeLaterException(
             precondition_date=precondition_date,
             message='asdf',
         )
@@ -152,6 +166,11 @@ def test_handle_waiting_for_worker_retry_by_exception(goal):
 @pytest.mark.django_db
 @pytest.mark.parametrize('goal', [{'state': GoalState.WAITING_FOR_WORKER}], indirect=True)
 def test_handle_waiting_for_worker_max_progress_exceeded(goal, settings):
+    dependent_goal = GoalFactory(
+        waiting_for_failed_count=122,
+        precondition_goals=[goal],
+    )
+
     settings.GOALS_MAX_PROGRESS_COUNT = 1
     with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
         follow_instructions.return_value = RetryMeLater()
@@ -159,6 +178,10 @@ def test_handle_waiting_for_worker_max_progress_exceeded(goal, settings):
     goal.refresh_from_db()
     assert goal.state == GoalState.GIVEN_UP
     assert goal.progress.count() == 1
+
+    # dependent goal is updated
+    dependent_goal.refresh_from_db()
+    assert dependent_goal.waiting_for_failed_count == 123
 
 
 @pytest.mark.django_db(transaction=True)
@@ -214,9 +237,9 @@ def test_transaction_error_in_goal():
     assert trasitions_count == 1
     assert progress_count == 1  # we called a handler and we must report it
     goal.refresh_from_db()
-    assert goal.state == GoalState.CORRUPTED
-    # progress record is not created
-    assert not goal.progress.exists()
+    assert goal.state == GoalState.WAITING_FOR_DATE
+    # progress record is created
+    assert goal.progress.exists()
     assert thread_local.current_goal is None
 
 
