@@ -1,10 +1,11 @@
 import logging
-import signal
 import threading
 
 from django.core.management.base import BaseCommand
 
 from django_goals.models import worker
+
+from .goals_busy_worker import stop_signal_handler
 
 
 logger = logging.getLogger(__name__)
@@ -26,14 +27,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        stop_event = threading.Event()
-        signal.signal(signal.SIGINT, lambda signum, frame: stop_event.set())
-        signal.signal(signal.SIGTERM, lambda signum, frame: stop_event.set())
-        threaded_worker(
-            thread_count=options['threads'],
-            stop_event=stop_event,
-            once=options['once'],
-        )
+        with stop_signal_handler() as stop_event:
+            threaded_worker(
+                thread_count=options['threads'],
+                stop_event=stop_event,
+                once=options['once'],
+            )
 
 
 def threaded_worker(thread_count=1, stop_event=None, **kwargs):
