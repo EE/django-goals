@@ -3,6 +3,7 @@ import logging
 from django.db import connection
 
 from .models import handle_waiting_for_worker
+from .notifications import listen_goal_waiting_for_worker
 
 
 logger = logging.getLogger(__name__)
@@ -31,8 +32,3 @@ def worker():
         handle_waiting_for_worker()
 
     logger.info("Blocking worker exiting now")
-
-
-def listen_goal_waiting_for_worker():
-    with connection.cursor() as cursor:
-        cursor.execute("LISTEN goal_waiting_for_worker")

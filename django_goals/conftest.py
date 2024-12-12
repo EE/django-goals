@@ -16,6 +16,7 @@ def goal_fixture(request):
 @pytest.fixture(name='get_notifications')
 def get_notifications_fixture():
     handler = mock.Mock()
+    connection.ensure_connection()
     pg_conn = connection.connection
     pg_conn.add_notify_handler(handler)
 
