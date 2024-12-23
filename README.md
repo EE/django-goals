@@ -1,6 +1,10 @@
 # Django Goals
 
-Django Goals is a task queue library for Django that allows you to define and manage complex task workflows using a goal-oriented approach. It provides a powerful and flexible way to structure and execute tasks with dependencies, retries, and asynchronous processing.
+Django Goals is a workflow engine for Django that treats tasks as goals to be achieved rather than procedures to execute. It uses PostgreSQL's transaction system to reliably distribute work across multiple workers - without requiring any additional infrastructure.
+
+You can use Django Goals as a classic DAG workflow engine, where you define task dependencies upfront and the system executes them in the correct order.
+
+When you need more flexibility, Django Goals allows you to dynamically add dependencies - modify the DAG while it is progressing. This pattern requires you to write idempotent handlers, but naturally handles failures and complex business workflows - tasks simply check their current state and decide what to do next.
 
 ## Features
 - Define tasks as goals with preconditions (dates and other goals)
@@ -242,8 +246,6 @@ Use the Django admin interface to monitor and manage the goals.
 In this example, we created a simple task to send a follow-up email to customers who haven't completed their purchase. We used Django Goals to schedule this task to run after 24 hours, defined the logic for sending the email in a handler function, and integrated the scheduling into our application logic. Finally, we ran the worker to process the goals and used the Django admin interface to monitor and manage them.
 
 ### More design info
-
-Goals are designed to be repeatable, so they can be triggered again without issues even after completion without a catastrophe.
 
 A single task/goal can be executed in many "pieces". For example, the handler function can dynamically decide to terminate the execution and request processing at a later date. Preconditions can be modified in each execution. In other words, a worker may pursue the goal in many tries and modify preconditions in each try.
 
