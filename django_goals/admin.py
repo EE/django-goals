@@ -18,7 +18,7 @@ class GoalDependencyInline(admin.TabularInline):
     fk_name = 'dependent_goal'
     extra = 0
     fields = (
-        'precondition_goal',
+        'precondition_goal__id',
         'precondition_goal__state',
         'precondition_goal__handler',
         'precondition_goal__created_at',
@@ -33,6 +33,17 @@ class GoalDependencyInline(admin.TabularInline):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    @admin.display(description='Precondition Goal ID')
+    def precondition_goal__id(self, obj):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse(
+                'admin:django_goals_goal_change',
+                args=(obj.precondition_goal.id,),
+            ),
+            obj.precondition_goal.id,
+        )
 
     @admin.display(description='Precondition Goal State')
     def precondition_goal__state(self, obj):

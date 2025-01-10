@@ -152,6 +152,9 @@ class Goal(models.Model):
             ),
         ]
 
+    def __str__(self):
+        return f'{self.handler} ({self.state})'
+
 
 class GoalDependency(models.Model):
     """
