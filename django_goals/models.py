@@ -142,7 +142,7 @@ class Goal(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     waiting_for_count__lte=1,
                     preconditions_mode=PreconditionsMode.ANY,
                 ) | models.Q(
