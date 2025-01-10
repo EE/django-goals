@@ -10,7 +10,7 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.13"
 django = ">=4.2"
 django-object-actions = ">=4.3"
 
