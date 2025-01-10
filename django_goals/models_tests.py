@@ -4,7 +4,8 @@ import pytest
 
 from .factories import GoalFactory
 from .models import (
-    GoalState, handle_unblocked_goals, schedule, unblock_retry_goal,
+    GoalState, PreconditionsMode, handle_unblocked_goals, schedule,
+    unblock_retry_goal,
 )
 
 
@@ -62,10 +63,20 @@ def test_schedule_updates_deadline():
     ],
     indirect=['goal'],
 )
-def test_schedule_updates_waiting_for_count(goal, expected_waiting_for, expected_waiting_for_failed_count):
-    next_goal = schedule(noop, precondition_goals=[goal])
+@pytest.mark.parametrize('mode', [PreconditionsMode.ALL, PreconditionsMode.ANY])
+def test_schedule_updates_waiting_for_count(goal, expected_waiting_for, expected_waiting_for_failed_count, mode):
+    next_goal = schedule(noop, precondition_goals=[goal], preconditions_mode=mode)
     assert next_goal.waiting_for_count == expected_waiting_for
     assert next_goal.waiting_for_failed_count == expected_waiting_for_failed_count
+    assert next_goal.preconditions_mode == mode
+
+
+@pytest.mark.django_db
+def test_schedule_any_mode():
+    preconds = GoalFactory.create_batch(2, state=GoalState.WAITING_FOR_WORKER)
+    next_goal = schedule(noop, precondition_goals=preconds, preconditions_mode=PreconditionsMode.ANY)
+    assert next_goal.waiting_for_count == 1
+    assert next_goal.precondition_goals.count() == 2
 
 
 @pytest.mark.django_db
