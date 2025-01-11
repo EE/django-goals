@@ -3,10 +3,12 @@ from django.db import models
 from django_goals.models import Goal
 
 from .merge_sort import MergeSort
+from .partition_sort import PartitionSort
 
 
 __all__ = [
     'MergeSort',
+    'PartitionSort',
     'GoalRelatedModel',
 ]
 
