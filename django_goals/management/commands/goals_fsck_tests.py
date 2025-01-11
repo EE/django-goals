@@ -15,6 +15,7 @@ def test_goals_fsck(goal):
     call_command('goals_fsck')
     goal.refresh_from_db()
     assert goal.waiting_for_count == 2
+    assert goal.waiting_for_not_achieved_count == 2
     assert goal.waiting_for_failed_count == 1
 
 
@@ -30,4 +31,5 @@ def test_goals_fsck_any_mode(goal):
     call_command('goals_fsck')
     goal.refresh_from_db()
     assert goal.waiting_for_count == 1
+    assert goal.waiting_for_not_achieved_count == 3
     assert goal.waiting_for_failed_count == 1

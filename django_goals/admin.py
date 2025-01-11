@@ -77,7 +77,7 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
     list_display = (
         'id', 'state', 'handler',
         'precondition_date',
-        'waiting_for_count',
+        'waiting_for_not_achieved_count',
         'created_at',
         'progress_count',
     )
@@ -90,7 +90,9 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
         'handler',
         'instructions_pre',
         'precondition_date',
+        'preconditions_mode',
         'waiting_for_count',
+        'waiting_for_not_achieved_count',
         'waiting_for_failed_count',
         'deadline',
         'created_at',

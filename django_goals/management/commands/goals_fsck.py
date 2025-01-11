@@ -51,6 +51,7 @@ def check_fix_goal(goal_id):
             waiting_for_count += 1
         if pre.state in NOT_GOING_TO_HAPPEN_SOON_STATES:
             waiting_for_failed_count += 1
+    waiting_for_not_achieved_count = waiting_for_count
     if goal.preconditions_mode == PreconditionsMode.ANY:
         waiting_for_count = min(1, waiting_for_count)
 
@@ -58,6 +59,11 @@ def check_fix_goal(goal_id):
         print(f"Goal {goal_id} waiting_for count, DB={goal.waiting_for_count}, recalculated={waiting_for_count}")
         goal.waiting_for_count = waiting_for_count
         goal.save(update_fields=['waiting_for_count'])
+
+    if waiting_for_not_achieved_count != goal.waiting_for_not_achieved_count:
+        print(f"Goal {goal_id} waiting_for_not_achieved count, DB={goal.waiting_for_not_achieved_count}, recalculated={waiting_for_not_achieved_count}")
+        goal.waiting_for_not_achieved_count = waiting_for_not_achieved_count
+        goal.save(update_fields=['waiting_for_not_achieved_count'])
 
     if waiting_for_failed_count != goal.waiting_for_failed_count:
         print(f"Goal {goal_id} waiting_for_failed count, DB={goal.waiting_for_failed_count}, recalculated={waiting_for_failed_count}")

@@ -13,6 +13,9 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='goal',
             name='waiting_for_count',
-            field=models.IntegerField(default=0, help_text='Number of precondition goals we are still waiting for.'),
+            field=models.IntegerField(
+                default=0,
+                help_text='Number of precondition goals that must become achieved before this goal can be pursued.',
+            ),
         ),
     ]

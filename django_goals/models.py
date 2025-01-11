@@ -93,7 +93,11 @@ class Goal(models.Model):
     )
     waiting_for_count = models.IntegerField(
         default=0,
-        help_text=_('Number of precondition goals we are still waiting for.'),
+        help_text=_('Number of precondition goals that must become achieved before this goal can be pursued.'),
+    )
+    waiting_for_not_achieved_count = models.IntegerField(  # for ALL mode this is the same as waiting_for_count
+        default=0,
+        help_text=_('Number of precondition goals that are not achieved yet.'),
     )
     waiting_for_failed_count = models.IntegerField(
         default=0,
@@ -341,7 +345,7 @@ def handle_waiting_for_date(now):
 def handle_waiting_for_preconditions(goals_qs=None):
     """
     Transition goals that are waiting for precondition goals to be achieved
-    and all preconditions are achieved.
+    and all (or any, depending on mode) preconditions are achieved.
     """
     if goals_qs is None:
         goals_qs = Goal.objects.all()
@@ -423,10 +427,16 @@ def handle_waiting_for_worker():
 
     if now < goal.precondition_date:
         logger.warning('Precondition date bug in goal %s. Precondition date is in the future', goal.id)
-    if goal.preconditions_mode == PreconditionsMode.ALL and goal.waiting_for_count != 0:
-        logger.warning('Waiting-for bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_count)
-    if goal.preconditions_mode == PreconditionsMode.ANY and goal.waiting_for_count > 0:
-        logger.warning('Waiting-for-any bug in goal %s. Expected 0 or less, got %s', goal.id, goal.waiting_for_count)
+    if goal.preconditions_mode == PreconditionsMode.ALL:
+        if goal.waiting_for_count != 0:
+            logger.warning('Waiting-for bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_count)
+        if goal.waiting_for_not_achieved_count != 0:
+            logger.warning('Waiting-for-not-achieved bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_not_achieved_count)
+    if goal.preconditions_mode == PreconditionsMode.ANY:
+        if goal.waiting_for_count > 0:
+            logger.warning('Waiting-for (ANY mode) bug in goal %s. Expected 0 or less, got %s', goal.id, goal.waiting_for_count)
+        if goal.waiting_for_not_achieved_count < 0:
+            logger.warning('Waiting-for-not-achieved (ANY mode) bug in goal %s. Expected 0 or more, got %s', goal.id, goal.waiting_for_not_achieved_count)
     if goal.waiting_for_failed_count != 0:
         logger.warning('Waiting-for-failed bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_failed_count)
 
@@ -477,6 +487,7 @@ def handle_waiting_for_worker():
             precondition_goals=goal,
         ).update(
             waiting_for_count=models.F('waiting_for_count') - 1,
+            waiting_for_not_achieved_count=models.F('waiting_for_not_achieved_count') - 1,
         )
 
     progress = goal.progress.create(
@@ -656,7 +667,17 @@ def schedule(
 
 
 def _add_precondition_goals(goal, precondition_goals):
-    if not precondition_goals:
+    # We can be sure current waiting counts are zero, because goal can add preconditions only
+    # in the handler or when scheduling a new goal.
+    # However, waiting_for_not_achieved_count can be non-zero when running in ANY mode.
+    goal.waiting_for_count = 0
+    goal.waiting_for_failed_count = 0
+
+    if precondition_goals is None:
+        goal.save(update_fields=[
+            'waiting_for_count',
+            'waiting_for_failed_count',
+        ])
         return
 
     # Lock and retrieve new precondition goals that aren't already dependencies
@@ -671,24 +692,23 @@ def _add_precondition_goals(goal, precondition_goals):
     ).exclude(
         dependent_goals=goal,
     ).select_for_update(no_key=True))
-    if not new_precondition_goals:
-        return
 
     # add to our preconditions
     goal.precondition_goals.add(*new_precondition_goals)
 
     # update waiting-for counters
-    # We can be sure current waiting counts are zero, because goal can add preconditions only
-    # in the handler or when scheduling a new goal.
-    goal.waiting_for_count = 0
-    goal.waiting_for_failed_count = 0
     for precondition_goal in new_precondition_goals:
         if precondition_goal.state != GoalState.ACHIEVED:
             goal.waiting_for_count += 1
+            goal.waiting_for_not_achieved_count += 1
         if precondition_goal.state in NOT_GOING_TO_HAPPEN_SOON_STATES:
             goal.waiting_for_failed_count += 1
     if goal.preconditions_mode == PreconditionsMode.ANY:
+        # cap waiting_for_count at 1 in ANY mode
         goal.waiting_for_count = min(goal.waiting_for_count, 1)
+        # ensure we are waiting for something is some precondition is not achieved
+        if goal.waiting_for_not_achieved_count > 0:
+            goal.waiting_for_count = 1
         # Detect the case where some precondition completed in the span between
         # handler checked the preconditions and we locked them.
         # We assume that precondition_goals contain the version checked by the handler.
@@ -702,7 +722,11 @@ def _add_precondition_goals(goal, precondition_goals):
                 orig_goal.state != GoalState.ACHIEVED
             ):
                 goal.waiting_for_count = 0
-    goal.save(update_fields=['waiting_for_count', 'waiting_for_failed_count'])
+    goal.save(update_fields=[
+        'waiting_for_count',
+        'waiting_for_not_achieved_count',
+        'waiting_for_failed_count',
+    ])
 
     # move deadline earlier for preconditions, if needed
     update_goals_deadline(Goal.objects.filter(

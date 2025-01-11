@@ -11,9 +11,9 @@ from example_app.models import GoalRelatedModel
 from .blocking_worker import listen_goal_waiting_for_worker
 from .factories import GoalFactory, GoalProgressFactory
 from .models import (
-    AllDone, Goal, GoalState, RetryMeLater, RetryMeLaterException,
-    handle_waiting_for_preconditions, handle_waiting_for_worker, schedule,
-    thread_local, worker_turn,
+    AllDone, Goal, GoalState, PreconditionsMode, RetryMeLater,
+    RetryMeLaterException, handle_waiting_for_preconditions,
+    handle_waiting_for_worker, schedule, thread_local, worker_turn,
 )
 
 
@@ -161,6 +161,40 @@ def test_handle_waiting_for_worker_retry_by_exception(goal):
     progress = goal.progress.get()
     assert progress.success
     assert progress.message == 'asdf'
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('goal', [{
+    'state': GoalState.WAITING_FOR_WORKER,
+    'handler': 'os.path.join',
+    'preconditions_mode': PreconditionsMode.ANY,
+    'waiting_for_count': 0,
+    'waiting_for_not_achieved_count': 1,
+}], indirect=True)
+@pytest.mark.parametrize(
+    ('precondition_goals', 'expected_waiting_for_count'),
+    [
+        ([], 1),
+        (None, 0),  # means "retry immediately"
+    ],
+)
+def test_handle_waiting_for_worker_retry_in_any_mode(goal, precondition_goals, expected_waiting_for_count):
+    """
+    In ANY preconditions mode, we should increment waiting_for_count
+    even if RetryMeLater does not contain any new goals.
+    """
+    achieved_precond = GoalFactory(state=GoalState.ACHIEVED)
+    waiting_precond = GoalFactory(state=GoalState.WAITING_FOR_DATE)
+    goal.precondition_goals.add(achieved_precond, waiting_precond)
+
+    with mock.patch('os.path.join') as handler:
+        handler.return_value = RetryMeLater(precondition_goals=precondition_goals)
+        handle_waiting_for_worker()
+
+    goal.refresh_from_db()
+    assert goal.state == GoalState.WAITING_FOR_DATE
+    assert goal.waiting_for_count == expected_waiting_for_count
+    assert goal.waiting_for_not_achieved_count == 1
 
 
 @pytest.mark.django_db
