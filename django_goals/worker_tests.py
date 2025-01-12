@@ -178,7 +178,7 @@ def test_handle_waiting_for_worker_retry_by_exception(goal):
         (None, 0),  # means "retry immediately"
     ],
 )
-def test_handle_waiting_for_worker_retry_in_any_mode(goal, precondition_goals, expected_waiting_for_count):
+def test_handle_waiting_for_worker_any_mode_retry(goal, precondition_goals, expected_waiting_for_count):
     """
     In ANY preconditions mode, we should increment waiting_for_count
     even if RetryMeLater does not contain any new goals.
@@ -189,6 +189,99 @@ def test_handle_waiting_for_worker_retry_in_any_mode(goal, precondition_goals, e
 
     with mock.patch('os.path.join') as handler:
         handler.return_value = RetryMeLater(precondition_goals=precondition_goals)
+        handle_waiting_for_worker()
+
+    goal.refresh_from_db()
+    assert goal.state == GoalState.WAITING_FOR_DATE
+    assert goal.waiting_for_count == expected_waiting_for_count
+    assert goal.waiting_for_not_achieved_count == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('precond_state', 'expected_waiting_for_count'),
+    [
+        (GoalState.ACHIEVED, 0),
+        (GoalState.WAITING_FOR_DATE, 1),
+    ],
+)
+def test_handle_waiting_for_worker_any_mode_retry_without_goals(precond_state, expected_waiting_for_count):
+    """
+    In ANY mode, retry with precondition_goals=[] should wait for any not-achieved precondition.
+    If all preconditions are achieved, we retry immediately.
+    """
+    precond = GoalFactory(state=precond_state)
+    goal = GoalFactory(
+        state=GoalState.WAITING_FOR_WORKER,
+        handler='os.path.join',
+        preconditions_mode=PreconditionsMode.ANY,
+        waiting_for_count=0,
+        waiting_for_not_achieved_count=1 if precond_state == GoalState.WAITING_FOR_DATE else 0,
+    )
+    goal.precondition_goals.add(precond)
+
+    with mock.patch('os.path.join') as handler:
+        handler.return_value = RetryMeLater(precondition_goals=[])
+        handle_waiting_for_worker()
+
+    goal.refresh_from_db()
+    assert goal.state == GoalState.WAITING_FOR_DATE
+    assert goal.waiting_for_count == expected_waiting_for_count
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('goal', [{
+    'state': GoalState.WAITING_FOR_WORKER,
+    'handler': 'os.path.join',
+    'preconditions_mode': PreconditionsMode.ANY,
+    'waiting_for_count': 0,
+    'waiting_for_not_achieved_count': 1,
+}], indirect=True)
+def test_handle_waiting_for_worker_any_mode_all_done(goal):
+    """
+    In ANY preconditions mode, we can achieve the goal even if some preconditions are not met.
+    """
+    achieved_precond = GoalFactory(state=GoalState.ACHIEVED)
+    waiting_precond = GoalFactory(state=GoalState.WAITING_FOR_DATE)
+    goal.precondition_goals.add(achieved_precond, waiting_precond)
+
+    with mock.patch('os.path.join') as handler:
+        handler.return_value = AllDone()
+        handle_waiting_for_worker()
+
+    goal.refresh_from_db()
+    assert goal.state == GoalState.ACHIEVED
+    assert goal.waiting_for_count == 0
+    assert goal.waiting_for_not_achieved_count == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('goal', [{
+    'state': GoalState.WAITING_FOR_WORKER,
+    'handler': 'os.path.join',
+    'preconditions_mode': PreconditionsMode.ANY,
+    'waiting_for_count': 0,
+    'waiting_for_not_achieved_count': 1,
+}], indirect=True)
+@pytest.mark.parametrize(
+    ('local_precond_state', 'expected_waiting_for_count'),
+    [
+        (GoalState.ACHIEVED, 1),
+        (GoalState.WAITING_FOR_DATE, 0),
+    ],
+)
+def test_handle_waiting_for_worker_any_mode_retry_with_stale_goal_state(goal, local_precond_state, expected_waiting_for_count):
+    """
+    In ANY preconditions mode, we retry immediately if the precondition goal was achieved during handler execution.
+    """
+    old_precond = GoalFactory(state=GoalState.WAITING_FOR_DATE)
+    goal.precondition_goals.add(old_precond)
+
+    new_precond = GoalFactory(state=GoalState.ACHIEVED)
+    new_precond.state = local_precond_state  # simulate we have stale state
+
+    with mock.patch('os.path.join') as handler:
+        handler.return_value = RetryMeLater(precondition_goals=[new_precond])
         handle_waiting_for_worker()
 
     goal.refresh_from_db()

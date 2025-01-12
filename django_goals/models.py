@@ -706,7 +706,7 @@ def _add_precondition_goals(goal, precondition_goals):
     if goal.preconditions_mode == PreconditionsMode.ANY:
         # cap waiting_for_count at 1 in ANY mode
         goal.waiting_for_count = min(goal.waiting_for_count, 1)
-        # ensure we are waiting for something is some precondition is not achieved
+        # ensure we are waiting for something if there are any not achieved preconditions
         if goal.waiting_for_not_achieved_count > 0:
             goal.waiting_for_count = 1
         # Detect the case where some precondition completed in the span between
