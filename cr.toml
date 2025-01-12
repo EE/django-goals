@@ -1,6 +1,6 @@
 [cosmic-ray]
 module-path = "django_goals"
-timeout = 20.0
+timeout = 40.0
 excluded-modules = [
     "**/migrations/**",
     "**/*_tests.py",
