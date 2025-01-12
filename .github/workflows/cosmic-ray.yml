@@ -44,3 +44,6 @@ jobs:
         with:
           name: cr-html-${{ github.sha }}
           path: cr.html
+
+      - name: Add job summary
+        run: cp cr-summary.txt $GITHUB_STEP_SUMMARY
