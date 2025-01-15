@@ -84,6 +84,37 @@ goal = schedule(
 )
 ```
 
+### Preconditions Mode
+
+When scheduling a goal with preconditions, you can specify how these preconditions should be evaluated using `preconditions_mode`:
+
+```python
+from django_goals.models import schedule, PreconditionsMode
+
+goal = schedule(
+    my_handler,
+    precondition_goals=[goal1, goal2],
+    preconditions_mode=PreconditionsMode.ANY  # or PreconditionsMode.ALL (default)
+)
+```
+
+There are two modes available:
+
+- **ALL** (default) - All preconditions must be achieved before the goal can be pursued.
+- **ANY** - Goal can be pursued if any of its preconditions is achieved.
+
+#### ANY Mode Behavior
+
+In ANY mode, there can be a situation when a goal's handler will be invoked while some of the goal's preconditions are not achieved. This has some special characteristics:
+
+1. **Achievement without all preconditions done** - A goal can be achieved (`AllDone()`) even if some of its preconditions are not met.
+
+2. **RetryMeLater Behavior**:
+   - When handler returns `RetryMeLater()` with no precondition goals (`precondition_goals=[]`), the system will:
+     - Retry immediately if all existing preconditions are achieved
+     - Wait for any not-achieved precondition otherwise
+   - When handler returns `RetryMeLater(precondition_goals=None)`, the goal will retry immediately, regardles of preconditions' state
+
 ### Running Workers
 
 Run the worker to process the goals. There are two types of workers: blocking and busy-wait.
