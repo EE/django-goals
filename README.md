@@ -276,7 +276,36 @@ Use the Django admin interface to monitor and manage the goals.
 
 In this example, we created a simple task to send a follow-up email to customers who haven't completed their purchase. We used Django Goals to schedule this task to run after 24 hours, defined the logic for sending the email in a handler function, and integrated the scheduling into our application logic. Finally, we ran the worker to process the goals and used the Django admin interface to monitor and manage them.
 
-### More design info
+## Performance
+
+### Production Scale Experience
+
+Django Goals has been successfully deployed in production environments with the following characteristics:
+
+- **Verified Worker Scale**: Tested with 48 concurrent workers (12 Heroku 1x pro dynos × 4 workers)
+- **Database Performance**: Operates smoothly on Heroku standard-0 PostgreSQL plan under this load
+- **Scalability Potential**: Based on database performance metrics, the system is estimated to handle up to ~150 concurrent workers without significant degradation
+
+### Database Optimization
+
+The system is designed with database performance in mind:
+
+- Optimized database layout with indexes for all state transitions
+- No full table scans during standard operations
+- Uses PostgreSQL's SKIP LOCKED feature to maintain responsiveness even under load
+- Each worker requires one database connection, which is typically the main bottleneck
+
+### Task Duration Considerations
+
+While the system is optimized for shorter tasks, it can handle longer-running tasks with some considerations:
+
+- Recommended: Tasks that complete within seconds to minutes
+- Possible: Tasks running up to 10 minutes have been successfully used in production
+- System remains responsive during long-running tasks due to:
+  - Goal-level locking (rather than table-level)
+  - SKIP LOCKED query optimization for concurrent goal processing
+
+## More design info
 
 A single task/goal can be executed in many "pieces". For example, the handler function can dynamically decide to terminate the execution and request processing at a later date. Preconditions can be modified in each execution. In other words, a worker may pursue the goal in many tries and modify preconditions in each try.
 
