@@ -1,10 +1,12 @@
-[tool.poetry]
+[project]
 name = "django-goals"
 version = "0.6.1"
 description = ""
 authors = []
 readme = "README.md"
 license = "MIT"
+
+[tool.poetry]
 packages = [
     { include = "django_goals" },
 ]
