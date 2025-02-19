@@ -9,6 +9,9 @@ packages = [
     { include = "django_goals" },
 ]
 
+[project.urls]
+repository = "https://github.com/EE/django-goals"
+
 [tool.poetry.dependencies]
 python = "^3.13"
 django = ">=4.2"
