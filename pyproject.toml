@@ -6,6 +6,9 @@ authors = []
 readme = "README.md"
 license = "MIT"
 
+[project.urls]
+repository = "https://github.com/EE/django-goals"
+
 [tool.poetry]
 packages = [
     { include = "django_goals" },
