@@ -324,10 +324,12 @@ def worker_turn(now=None, stop_event=None, max_progress_count=float('inf')):
 
 
 @transaction.atomic
-def handle_waiting_for_date(now):
+def handle_waiting_for_date(now=None):
     """
     Transition goals that are waiting for precondition date and the date has come.
     """
+    if now is None:
+        now = timezone.now()
     qs = Goal.objects.filter(
         state=GoalState.WAITING_FOR_DATE,
         precondition_date__lte=now,
@@ -562,10 +564,12 @@ def get_retry_delay(failure_index):
     return datetime.timedelta(seconds=10) * (2 ** failure_index)
 
 
-def remove_old_goals(now):
+def remove_old_goals(now=None):
+    if now is None:
+        now = timezone.now()
     retention_seconds = getattr(settings, 'GOALS_RETENTION_SECONDS', 60 * 60 * 24 * 7)
     if retention_seconds is None:
-        return
+        return 0
     try:
         with transaction.atomic():
             ids_to_delete = Goal.objects.filter(
@@ -576,13 +580,15 @@ def remove_old_goals(now):
             ).values_list('id', flat=True)
             ids_to_delete = list(ids_to_delete[:100])
             if not ids_to_delete:
-                return
+                return 0
             GoalDependency.objects.filter(precondition_goal_id__in=ids_to_delete).delete()
             GoalDependency.objects.filter(dependent_goal_id__in=ids_to_delete).delete()
             Goal.objects.filter(id__in=ids_to_delete).delete()
             logger.info('Deleted %s old, achieved goals', len(ids_to_delete))
+            return len(ids_to_delete)
     except models.ProtectedError as e:
         logger.warning('When cleaning old goals: %s', e)
+        return 0
 
 
 class RetryMeLater:
