@@ -25,6 +25,13 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='goal',
-            constraint=models.CheckConstraint(check=models.Q(models.Q(('preconditions_mode', 'any'), ('waiting_for_count__lte', 1)), ('preconditions_mode', 'all'), _connector='OR'), name='goals_waiting_for_count_any'),
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    models.Q(('preconditions_mode', 'any'), ('waiting_for_count__lte', 1)),
+                    ('preconditions_mode', 'all'),
+                    _connector='OR',
+                ),
+                name='goals_waiting_for_count_any',
+            ),
         ),
     ]

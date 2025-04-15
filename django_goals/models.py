@@ -159,7 +159,7 @@ class Goal(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     waiting_for_count__lte=1,
                     preconditions_mode=PreconditionsMode.ANY,
                 ) | models.Q(
@@ -168,7 +168,7 @@ class Goal(models.Model):
                 name='goals_waiting_for_count_any',
             ),
             models.CheckConstraint(
-                check=models.Q(precondition_failure_behavior__in=PreconditionFailureBehavior.values),
+                condition=models.Q(precondition_failure_behavior__in=PreconditionFailureBehavior.values),
                 name='goals_precondition_failure_behavior',
             ),
         ]
