@@ -166,7 +166,6 @@ Goals can be in various states:
 - **WAITING_FOR_WORKER** - Goal is ready to be pursued and we are waiting for a worker to pick it up.
 - **ACHIEVED** - The goal has been achieved.
 - **GIVEN_UP** - There have been too many failed attempts when pursuing the goal.
-- **CORRUPTED** - A transaction error happened during execution, so we can't properly store the failure.
 - **NOT_GOING_TO_HAPPEN_SOON** - The goal is waiting for a precondition that won't be achieved soon.
 
 The state transitions are managed automatically based on the preconditions and the outcome of the handler function.

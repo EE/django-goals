@@ -1,6 +1,8 @@
 from django.db import models
 
-from .models import Goal, GoalState
+from .models import (
+    NOT_GOING_TO_HAPPEN_SOON_STATES, WAITING_STATES, Goal, GoalState,
+)
 
 
 def is_goal_completed(goal):
@@ -11,20 +13,11 @@ def is_goal_completed(goal):
 
 
 def is_goal_processing(goal):
-    return goal is not None and goal.state in (
-        GoalState.WAITING_FOR_DATE,
-        GoalState.WAITING_FOR_PRECONDITIONS,
-        GoalState.WAITING_FOR_WORKER,
-        GoalState.BLOCKED,  # we assume it will be unblocked and continue processing
-    )
+    return goal is not None and goal.state in WAITING_STATES
 
 
 def is_goal_error(goal):
-    return goal is not None and goal.state in (
-        GoalState.CORRUPTED,
-        GoalState.GIVEN_UP,
-        GoalState.NOT_GOING_TO_HAPPEN_SOON,
-    )
+    return goal is not None and goal.state in NOT_GOING_TO_HAPPEN_SOON_STATES
 
 
 class GoalRelatedMixin(models.Model):

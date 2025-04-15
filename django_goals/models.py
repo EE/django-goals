@@ -34,8 +34,6 @@ class GoalState(models.TextChoices):
     ACHIEVED = 'achieved'
     # Too many failed attempts when pursuing the goal
     GIVEN_UP = 'given_up'
-    # transaction error happened during execution, so we cant even properly store failure
-    CORRUPTED = 'corrupted'
     # Goal is waiting on a precondition that wont be achieved
     NOT_GOING_TO_HAPPEN_SOON = 'not_going_to_happen_soon'
 
@@ -43,7 +41,6 @@ class GoalState(models.TextChoices):
 NOT_GOING_TO_HAPPEN_SOON_STATES = (
     GoalState.BLOCKED,
     GoalState.GIVEN_UP,
-    GoalState.CORRUPTED,
     GoalState.NOT_GOING_TO_HAPPEN_SOON,
 )
 
