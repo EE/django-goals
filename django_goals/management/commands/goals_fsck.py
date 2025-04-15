@@ -4,7 +4,8 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from django_goals.models import (
-    NOT_GOING_TO_HAPPEN_SOON_STATES, Goal, GoalState, PreconditionsMode,
+    NOT_GOING_TO_HAPPEN_SOON_STATES, Goal, GoalState,
+    PreconditionFailureBehavior, PreconditionsMode,
 )
 
 
@@ -52,6 +53,8 @@ def check_fix_goal(goal_id):
         if pre.state in NOT_GOING_TO_HAPPEN_SOON_STATES:
             waiting_for_failed_count += 1
     waiting_for_not_achieved_count = waiting_for_count
+    if goal.precondition_failure_behavior == PreconditionFailureBehavior.PROCEED:
+        waiting_for_count -= waiting_for_failed_count
     if goal.preconditions_mode == PreconditionsMode.ANY:
         waiting_for_count = min(1, waiting_for_count)
 

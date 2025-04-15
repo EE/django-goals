@@ -4,6 +4,7 @@ from unittest import mock
 
 import pytest
 from django.db import models
+from django.test import override_settings
 from django.utils import timezone
 
 from example_app.models import GoalRelatedModel
@@ -11,9 +12,9 @@ from example_app.models import GoalRelatedModel
 from .blocking_worker import listen_goal_waiting_for_worker
 from .factories import GoalFactory, GoalProgressFactory
 from .models import (
-    AllDone, Goal, GoalState, PreconditionsMode, RetryMeLater,
-    RetryMeLaterException, handle_waiting_for_preconditions,
-    handle_waiting_for_worker, schedule, thread_local, worker_turn,
+    AllDone, Goal, GoalState, PreconditionFailureBehavior, PreconditionsMode,
+    RetryMeLater, RetryMeLaterException, handle_waiting_for_preconditions,
+    handle_waiting_for_worker, schedule, thread_local, worker, worker_turn,
 )
 
 
@@ -288,6 +289,38 @@ def test_handle_waiting_for_worker_any_mode_retry_with_stale_goal_state(goal, lo
     assert goal.state == GoalState.WAITING_FOR_DATE
     assert goal.waiting_for_count == expected_waiting_for_count
     assert goal.waiting_for_not_achieved_count == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('failure_mode', 'expected_state', 'progress_count'),
+    [
+        (PreconditionFailureBehavior.PROCEED, GoalState.ACHIEVED, 1),
+        (PreconditionFailureBehavior.BLOCK, GoalState.NOT_GOING_TO_HAPPEN_SOON, 0),
+    ],
+)
+@override_settings(GOALS_GIVE_UP_AT=1)
+def test_proceed_at_failure_mode_do_work(failure_mode, expected_state, progress_count):
+    precond = schedule(fail)
+    goal = schedule(
+        noop,
+        precondition_goals=[precond],
+        precondition_failure_behavior=failure_mode,
+    )
+    worker(once=True)
+    precond.refresh_from_db()
+    assert precond.state == GoalState.GIVEN_UP
+    goal.refresh_from_db()
+    assert goal.state == expected_state
+    assert goal.progress.count() == progress_count
+
+
+def noop(goal):  # pylint: disable=unused-argument
+    return AllDone()
+
+
+def fail(goal):  # pylint: disable=unused-argument
+    raise Exception('I failed!')
 
 
 @pytest.mark.django_db

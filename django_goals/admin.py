@@ -91,6 +91,7 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
         'instructions_pre',
         'precondition_date',
         'preconditions_mode',
+        'precondition_failure_behavior',
         'waiting_for_count',
         'waiting_for_not_achieved_count',
         'waiting_for_failed_count',

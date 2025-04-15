@@ -4,8 +4,8 @@ import pytest
 
 from .factories import GoalFactory
 from .models import (
-    GoalState, PreconditionsMode, handle_unblocked_goals, schedule,
-    unblock_retry_goal,
+    GoalState, PreconditionFailureBehavior, PreconditionsMode,
+    handle_unblocked_goals, schedule, unblock_retry_goal,
 )
 
 
@@ -72,11 +72,46 @@ def test_schedule_updates_waiting_for_count(goal, expected_waiting_for, expected
 
 
 @pytest.mark.django_db
-def test_schedule_any_mode():
+@pytest.mark.parametrize(
+    'failure_mode',
+    [
+        PreconditionFailureBehavior.PROCEED,
+        PreconditionFailureBehavior.BLOCK,
+    ],
+)
+def test_schedule_any_mode_caps_waiting_for(failure_mode):
     preconds = GoalFactory.create_batch(2, state=GoalState.WAITING_FOR_WORKER)
-    next_goal = schedule(noop, precondition_goals=preconds, preconditions_mode=PreconditionsMode.ANY)
+    next_goal = schedule(
+        noop,
+        precondition_goals=preconds,
+        preconditions_mode=PreconditionsMode.ANY,
+        precondition_failure_behavior=failure_mode,
+    )
     assert next_goal.waiting_for_count == 1
     assert next_goal.precondition_goals.count() == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('failure_mode', 'expected_waiting_for_count'),
+    [
+        (PreconditionFailureBehavior.PROCEED, 0),
+        (PreconditionFailureBehavior.BLOCK, 1),
+    ],
+)
+def test_schedule_failed_precond(failure_mode, expected_waiting_for_count):
+    failed_goal = GoalFactory(
+        state=GoalState.GIVEN_UP,
+    )
+    goal = schedule(
+        noop,
+        precondition_goals=[failed_goal],
+        precondition_failure_behavior=failure_mode,
+    )
+    assert goal.state == GoalState.WAITING_FOR_PRECONDITIONS
+    assert goal.waiting_for_count == expected_waiting_for_count
+    assert goal.waiting_for_failed_count == 1
+    assert goal.waiting_for_not_achieved_count == 1
 
 
 @pytest.mark.django_db
