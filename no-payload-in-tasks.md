@@ -1,7 +1,5 @@
 # Task Queue Reference Patterns: Classic vs. Inverted Approaches
 
-## Introduction
-
 Background task queues enable asynchronous processing of operations. This document compares two fundamental approaches to managing the relationship between tasks and the objects they operate on.
 
 **Classic Approach:** Tasks reference objects in their payload
@@ -47,9 +45,7 @@ def process_payment(task):
 
 On the first look this inverted approach doesn't look so good, but wait.
 
-## Key Scenarios
-
-### Scenario 1: Payload Validation Issues
+## Payload Validation Issues
 
 **Classic Approach:**
 ```python
@@ -61,7 +57,7 @@ task_queue.enqueue('process_payment', {})                      # Missing key
 # Issues discovered only at execution time
 def process_payment(task):
     try:
-        order_id = task.payload['order_id']  # KeyError if missing
+        order_id = task.payload['order_id']
         order = Order.objects.get(id=order_id)
     except KeyError:
         logger.error("Missing order_id in payload")
@@ -81,7 +77,7 @@ def process_payment(task):
     # Process order...
 ```
 
-### Scenario 2: Preventing Duplicate Processing
+## Preventing Duplicate Processing
 
 **Classic Approach:**
 ```python
@@ -104,40 +100,7 @@ if not order.processing_task_id:
     order.save()
 ```
 
-### Scenario 3: Object Changes Between Task Creation and Execution
-
-**Classic Approach:**
-```python
-# Snapshot data in payload
-task_queue.enqueue('process_payment', {
-    'order_id': order.id,
-    'amount': order.amount  # May become outdated
-})
-
-# Worker may need to compare snapshot vs. current state
-def process_payment(task):
-    order = Order.objects.get(id=task.payload['order_id'])
-    expected_amount = task.payload['amount']
-    
-    if order.amount != expected_amount:
-        # Complex handling of divergent state
-        pass
-```
-
-**Inverted Approach:**
-```python
-# No data snapshot, just reference
-task_id = task_queue.enqueue('process_payment')
-order.processing_task_id = task_id
-order.save()
-
-# Worker always uses current state
-def process_payment(task):
-    order = Order.objects.get(processing_task_id=task.id)
-    # Current data automatically used
-```
-
-### Scenario 4: Cancelling Tasks
+## Cancelling Tasks
 
 **Classic Approach:**
 ```python
@@ -159,7 +122,7 @@ if order.processing_task_id:
     order.save()
 ```
 
-### Scenario 5: Finding Objects Being Processed
+## Finding Objects Being Processed
 
 **Classic Approach:**
 ```python
@@ -174,16 +137,6 @@ in_process_orders = Order.objects.filter(id__in=order_ids)
 # Direct query
 in_process_orders = Order.objects.filter(processing_task_id__isnull=False)
 ```
-
-## Implementation Requirements
-
-### Database Schema for Inverted Pattern
-
-```sql
-ALTER TABLE orders ADD COLUMN processing_task_id VARCHAR(36) UNIQUE;
-```
-
-The `UNIQUE` constraint ensures one task processes one order.
 
 ## Conclusion
 
