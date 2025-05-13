@@ -30,7 +30,7 @@ When you need more flexibility, Django Goals allows you to dynamically add depen
 Install the package using pip:
 
 ```bash
-pip install https://github.com/EE/django-goals/archive/refs/heads/main.zip
+pip install django-goals
 ```
 
 Add django_goals to your INSTALLED_APPS in your Django settings:
