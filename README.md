@@ -15,6 +15,7 @@ When you need more flexibility, Django Goals allows you to dynamically add depen
 - Integrate seamlessly with Django ORM for goal persistence and querying
 - Customize goal execution and error handling
 - Monitor and manage goals via Admin interface
+- Support for tiered workers with deadline horizons to prioritize urgent tasks
 
 ## Simple Workflow for Using Django Goals
 
@@ -144,6 +145,41 @@ A quick way to replace exited workers is to use `yes | xargs -P <how many worker
 ```bash
 yes | xargs -I -L1 -P4 -- ./manage.py goals_busy_worker --max-progress-count 100
 ```
+
+#### Worker with Deadline Horizons
+
+You can create workers that only process goals with deadlines within a specific time frame using the deadline horizon parameter:
+
+```bash
+# Run 2 workers that only handle goals with deadlines within the next 30 minutes
+# and 3 workers that handle all goals
+python manage.py goals_threaded_worker --threads 2:30m --threads 3
+```
+
+This is useful for ensuring that urgent goals (with near deadlines) always have dedicated workers available, even when all other workers are busy with long-running tasks.
+
+The `--threads` parameter accepts two formats:
+- `N` - Create N workers with no deadline horizon (will process any goal)
+- `N:HORIZON` - Create N workers with the specified horizon (will only process goals with deadlines within that time)
+
+Horizon format examples:
+- `5s` - 5 seconds
+- `30m` - 30 minutes
+- `2h` - 2 hours
+- `1d` - 1 day
+- `none` - No deadline limit (same as just specifying a number)
+
+You can use multiple `--threads` parameters to create workers with different horizons:
+
+```bash
+# Create a three-tier worker system
+python manage.py goals_threaded_worker --threads 1:0s --threads 2:4h --threads 5
+```
+
+This would create:
+- 1 critical worker (only handles goals due immediately)
+- 2 urgent workers (only handles goals due within 4 hours)
+- 5 regular workers (handle any goal regardless of deadline)
 
 #### Blocking Worker
 

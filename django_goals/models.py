@@ -432,15 +432,18 @@ def handle_unblocked_goals():
 
 
 @transaction.atomic
-def handle_waiting_for_worker():
+def handle_waiting_for_worker(deadline_horizon=None):
     """
     Transition goals that are waiting for a worker to pick them up.
     """
     now = timezone.now()
     # Get the first goal that is waiting for a worker
-    goal = Goal.objects.filter(state=GoalState.WAITING_FOR_WORKER).order_by(
+    qs = Goal.objects.filter(state=GoalState.WAITING_FOR_WORKER).order_by(
         'deadline',
-    ).select_for_update(
+    )
+    if deadline_horizon is not None:
+        qs = qs.filter(deadline__lte=now + deadline_horizon)
+    goal = qs.select_for_update(
         skip_locked=True,
         no_key=True,
     ).first()

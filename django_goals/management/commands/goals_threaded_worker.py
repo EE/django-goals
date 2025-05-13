@@ -1,7 +1,9 @@
 import logging
+import re
 import threading
 import time
 from contextlib import contextmanager
+from datetime import timedelta
 
 from django.core.management.base import BaseCommand
 
@@ -23,8 +25,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             '--threads',
-            type=int,
-            default=1,
+            action='append',  # This allows multiple instances of --threads
+            help='Number of threads and optional deadline horizon (e.g., "3", "2:30m")',
         )
         parser.add_argument(
             '--once',
@@ -33,19 +35,68 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Parse the threads parameter
+        threads_specs = options.get('threads') or ['1']  # Default to 1 worker if not specified
+        worker_specs = []
+        for spec in threads_specs:
+            try:
+                if ':' in spec:
+                    # Format is N:HORIZON
+                    count, horizon_str = spec.split(':', 1)
+                    count = int(count)
+                    horizon = parse_duration(horizon_str)
+                else:
+                    # Format is just N
+                    count = int(spec)
+                    horizon = None
+
+                if count <= 0:
+                    raise ValueError("Thread count must be a positive integer")
+                worker_specs.append((count, horizon))
+
+            except ValueError as e:
+                self.stderr.write(f"Error parsing thread count '{spec}': {e}")
+                return
+
         with stop_signal_handler() as stop_event:
             threaded_worker(
-                thread_count=options['threads'],
+                worker_specs=worker_specs,
                 stop_event=stop_event,
                 once=options['once'],
             )
 
 
-def threaded_worker(thread_count=1, stop_event=None, once=False):
+def parse_duration(duration_str):
+    """
+    Parse duration strings like "30m", "2h", "1d" into timedelta objects.
+    Returns None if the string is "none", empty, or None.
+    """
+    if not duration_str or duration_str.lower() == 'none':
+        return None
+
+    units = {
+        's': 'seconds',
+        'm': 'minutes',
+        'h': 'hours',
+        'd': 'days',
+        'w': 'weeks'
+    }
+
+    matches = re.match(r'^(\d+)([smhdw])$', duration_str.lower())
+    if not matches:
+        raise ValueError(f"Invalid duration format: {duration_str}. Use format like '30m', '2h', '1d'")
+
+    value, unit = matches.groups()
+    kwargs = {units[unit]: int(value)}
+    return timedelta(**kwargs)
+
+
+def threaded_worker(worker_specs=None, stop_event=None, once=False):
     if stop_event is None:
         stop_event = threading.Event()
 
-    workers_state = WorkersState(thread_count + 1)  # +1 for transitions thread
+    total_workers = sum(count for count, _ in worker_specs)
+    workers_state = WorkersState(total_workers + 1)  # +1 for transitions thread
 
     threads = [
         TransitionsThread(
@@ -54,14 +105,21 @@ def threaded_worker(thread_count=1, stop_event=None, once=False):
             workers_state=workers_state,
             thread_id="transitions",
         ),
-    ] + [
-        HeavyLiftingThread(
-            stop_event=stop_event,
-            once=once,
-            workers_state=workers_state,
-            thread_id=f"worker_{i}",
-        ) for i in range(thread_count)
     ]
+
+    worker_id = 0
+    for count, horizon in worker_specs:
+        for i in range(count):
+            threads.append(
+                HeavyLiftingThread(
+                    stop_event=stop_event,
+                    once=once,
+                    workers_state=workers_state,
+                    thread_id=f"worker_{worker_id}",
+                    deadline_horizon=horizon,
+                )
+            )
+            worker_id += 1
 
     for thread in threads:
         thread.start()
@@ -71,20 +129,21 @@ def threaded_worker(thread_count=1, stop_event=None, once=False):
 
 
 class HeavyLiftingThread(threading.Thread):
-    def __init__(self, stop_event, once, workers_state, thread_id):
+    def __init__(self, stop_event, once, workers_state, thread_id, deadline_horizon=None):
         super().__init__()
         self.stop_event = stop_event
         self.once = once
         self.workers_state = workers_state
         self.thread_id = thread_id
+        self.deadline_horizon = deadline_horizon
 
     def run(self):
-        logger.info('Busy-wait worker started')
+        logger.info('Busy-wait worker started, deadline_horizon: %s', self.deadline_horizon)
 
         while not self.stop_event.is_set():
             with self.workers_state.work_session(self.thread_id):
                 try:
-                    did_work = handle_waiting_for_worker()
+                    did_work = handle_waiting_for_worker(deadline_horizon=self.deadline_horizon)
                 except Exception as e:
                     logger.exception(e)
                     # Treat exceptions as if we didn't do work

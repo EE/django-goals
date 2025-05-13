@@ -14,7 +14,7 @@ from .merge_sort import MergeSort, ensure_sorted
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize('worker_function', [
     worker,
-    lambda **kwargs: threaded_worker(thread_count=4, **kwargs),
+    lambda **kwargs: threaded_worker(worker_specs=[(4, None)], **kwargs),
 ])
 def test_merge_sort(worker_function):
     numbers = [random.randint(0, 100) for _ in range(10)]
