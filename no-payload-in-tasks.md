@@ -1,3 +1,65 @@
+# The Business Object Queue Coordination Pattern
+
+## Core Observation
+
+If your queue system generates unique IDs for each message, you can use these IDs as temporary foreign keys in your business objects. This creates precise coordination without coupling.
+
+## How It Works
+
+If you have a queue that returns an ID when you create a message, you can:
+- Store that queue ID in your business object
+- Have workers look up business objects by queue ID
+- Keep queue messages minimal (just a signal + the ID)
+
+This inverts the traditional approach where you put business IDs in queue messages.
+
+## Interesting Properties
+
+### The queue stays generic
+Since the queue only carries signals and its own IDs, it doesn't need to know anything about your business domain. No business identifiers, no domain concepts, no growing message complexity.
+
+### Business objects become queue-aware
+By storing queue IDs in business objects, you can see queue participation through normal database queries. If an order has a shipping_task_id field, you know it's queued for shipping.
+
+### Direct lookups
+If you index the queue ID fields, workers can find their assigned work with simple equality queries. No scanning, no complex matching logic.
+
+### Flexible relationships
+You can model different cardinalities as needed:
+- Multiple objects pointing to one task (batch processing)
+- One object with multiple task IDs (parallel workflows)
+- Zero-or-one object per task if you make the queue ID field unique
+
+## Key Requirement
+
+This approach needs a queue where you can create a task and get its ID before workers can process it. Some options:
+
+- Database-backed queues where you control visibility (especially powerful when queue and business data share the same database - you can atomically create the task and assign its ID)
+- Queues with delayed visibility features
+
+If your queue immediately publishes messages to workers, you'd need additional coordination.
+
+## Trade-offs
+
+**Traditional approach** (business ID in queue):
+- Queue messages know about business identifiers
+- Message size varies with identifier complexity
+- Natural for immediate processing
+
+**Queue ID in business object**:
+- Queue stays domain-agnostic
+- Fixed message size
+- Requires two-phase task creation
+- Queue state visible in business queries
+
+## When This Might Be Useful
+
+- If you want minimal queue messages
+- If you like seeing queue state in your business data
+- If you have complex or composite business identifiers
+- If you want one queue to serve multiple business domains
+- If you already have a database with your business objects
+
 # Task Queue Reference Patterns: Classic vs. Inverted Approaches
 
 Background task queues enable asynchronous processing of operations. This document compares two fundamental approaches to managing the relationship between tasks and the objects they operate on.
