@@ -17,14 +17,6 @@ When you need more flexibility, Django Goals allows you to dynamically add depen
 - Monitor and manage goals via Admin interface
 - Support for tiered workers with deadline horizons to prioritize urgent tasks
 
-## Simple Workflow for Using Django Goals
-
-1. **Define goal handler**: Define a handler function that contains the logic for achieving a goal.
-2. **Schedule the goal**: Schedule the goal with the handler function and any preconditions.
-3. **Run the worker**: Run a worker to process the goals.
-4. **Customize as needed**: Customize goal execution, retries, and error handling as needed.
-5. **Monitor and manage goals**: Use the Django admin interface to monitor and manage goals.
-
 ## Installation
 
 Install the package using pip:
@@ -217,99 +209,6 @@ The state transitions are managed automatically based on the preconditions and t
 `GOALS_MEMORY_LIMIT_MIB` - Maximum memory usage of a worker process. This is enforced using `resource` python module. Set to `None` to disable the limit. Default is `None`.
 
 `GOALS_TIME_LIMIT_SECONDS` - Maximum time a handler function can run. If the handler function runs longer than this, it is terminated. Default is `None` (no limit).
-
-## A real-life example: use Django Goals in e-commerce
-
-Imagine you have a Django application for an e-commerce site. You want to send a follow-up email to customers who haven't completed their purchase after adding items to their cart. This email should only be sent if certain conditions are met (e.g., a specific time has passed since the items were added to the cart).
-
-Here's how you can use Django Goals to achieve this.
-
-**1. Define Your Goal Handler**
-
-First, define the handler function that will send the follow-up email. This function will be called when the goal is processed.
-
-```python
-# handlers.py
-
-from django_goals.models import AllDone
-from django.core.mail import send_mail
-
-def send_follow_up_email(goal, customer_email, cart_id):
-    # Logic to send the follow-up email
-    send_mail(
-        'Complete Your Purchase',
-        'You have items in your cart. Complete your purchase now!',
-        'from@example.com',
-        [customer_email],
-        fail_silently=False,
-    )
-    return AllDone()
-```
-
-**2. Schedule the Goal**
-
-Next, schedule the goal to be processed at a later time. For example, schedule it to run 24 hours after the items were added to the cart.
-
-```python
-# schedule_goal.py
-
-from django.utils import timezone
-from django_goals.models import schedule
-from .handlers import send_follow_up_email
-
-def schedule_follow_up_email(customer_email, cart_id):
-    # Schedule the goal to run 24 hours later
-    precondition_date = timezone.now() + timezone.timedelta(hours=24)
-    goal = schedule(
-        send_follow_up_email,
-        args=[customer_email, cart_id],
-        kwargs={},
-        precondition_date=precondition_date
-    )
-    print(f"Scheduled follow-up email for cart {cart_id} to be sent to {customer_email}")
-```
-
-**3. Run the Worker**
-
-Run the worker to process the scheduled goals. This can be done using the blocking worker or the busy-wait worker.
-
-Blocking Worker
-
-```bash
-python manage.py goals_blocking_worker
-```
-
-Busy-Wait Worker
-
-```bash
-python manage.py goals_busy_worker
-```
-
-**4. Integrate with Your Application**
-
-Integrate the scheduling function with your application logic. For example, call schedule_follow_up_email when a user adds items to their cart.
-
-```python
-# views.py
-
-from .schedule_goal.py import schedule_follow_up_email
-
-def add_to_cart(request):
-    # Logic to add items to cart
-    ...
-    customer_email = request.user.email
-    cart_id = ... # get the cart id
-    schedule_follow_up_email(customer_email, cart_id)
-    return HttpResponse("Items added to cart")
-```
-
-**5. Monitor Goals**
-
-Use the Django admin interface to monitor and manage the goals.
-
-**Summary**
-
-In this example, we created a simple task to send a follow-up email to customers who haven't completed their purchase. We used Django Goals to schedule this task to run after 24 hours, defined the logic for sending the email in a handler function, and integrated the scheduling into our application logic. Finally, we ran the worker to process the goals and used the Django admin interface to monitor and manage them.
 
 ## Performance
 
