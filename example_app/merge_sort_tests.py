@@ -2,10 +2,11 @@ import random
 
 import pytest
 
+from django_goals.busy_worker import worker
 from django_goals.management.commands.goals_threaded_worker import (
     threaded_worker,
 )
-from django_goals.models import schedule, worker
+from django_goals.models import schedule
 from django_goals.utils import is_goal_completed
 
 from .merge_sort import MergeSort, ensure_sorted

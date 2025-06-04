@@ -1,7 +1,8 @@
 import pytest
 from django.test import override_settings
 
-from django_goals.models import PreconditionFailureBehavior, schedule, worker
+from django_goals.busy_worker import worker
+from django_goals.models import PreconditionFailureBehavior, schedule
 
 from .proceed_on_errors import ErrorsBatch, do_batch
 

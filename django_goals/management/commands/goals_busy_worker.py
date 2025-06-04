@@ -5,7 +5,7 @@ import threading
 
 from django.core.management.base import BaseCommand
 
-from django_goals.models import worker
+from django_goals.busy_worker import worker
 
 
 logger = logging.getLogger(__name__)

@@ -2,7 +2,8 @@ import random
 
 import pytest
 
-from django_goals.models import PreconditionsMode, schedule, worker
+from django_goals.busy_worker import worker
+from django_goals.models import PreconditionsMode, schedule
 from django_goals.utils import is_goal_completed
 
 from .partition_sort import PartitionSort, ensure_sorted
