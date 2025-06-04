@@ -1,9 +1,6 @@
 name: Mutation testing with Cosmic Ray
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
