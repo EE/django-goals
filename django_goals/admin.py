@@ -11,6 +11,7 @@ from django_object_actions import DjangoObjectActions, action
 from .models import (
     Goal, GoalDependency, GoalProgress, block_goal, unblock_retry_goal,
 )
+from .pickups import GoalPickup
 
 
 class GoalDependencyInline(admin.TabularInline):
@@ -72,6 +73,20 @@ class GoalProgressInline(admin.TabularInline):
         return False
 
 
+class GoalPickupInline(admin.TabularInline):
+    model = GoalPickup
+    extra = 0
+
+    def has_add_permission(self, request, obj):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Goal)
 class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
     list_display = (
@@ -102,6 +117,7 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
     inlines = (
         GoalDependencyInline,
         GoalProgressInline,
+        GoalPickupInline,
     )
     change_actions = (
         'block',

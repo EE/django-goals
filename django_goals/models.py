@@ -16,6 +16,12 @@ from .limits import limit_memory, limit_time
 from .notifications import (
     listen_goal_progress, notify_goal_progress, notify_goal_waiting_for_worker,
 )
+from .pickups import GoalPickup
+
+
+__all__ = (
+    'GoalPickup',
+)
 
 
 logger = logging.getLogger(__name__)
@@ -364,7 +370,7 @@ def handle_unblocked_goals():
 
 
 @transaction.atomic
-def handle_waiting_for_worker(deadline_horizon=None):
+def handle_waiting_for_worker(deadline_horizon=None, pickup_monitor=None):
     """
     Transition goals that are waiting for a worker to pick them up.
     """
@@ -382,6 +388,9 @@ def handle_waiting_for_worker(deadline_horizon=None):
     if goal is None:
         # nothing to do
         return None
+
+    if pickup_monitor is not None:
+        pickup_monitor.pickup(goal.id)
 
     if now < goal.precondition_date:
         logger.warning('Precondition date bug in goal %s. Precondition date is in the future', goal.id)
@@ -477,6 +486,10 @@ def handle_waiting_for_worker(deadline_horizon=None):
 
     goal.save(update_fields=['state', 'precondition_date'])
     notify_goal_progress(goal.id, goal.state)
+
+    if pickup_monitor is not None:
+        pickup_monitor.release(goal.id)
+
     return progress
 
 

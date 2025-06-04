@@ -12,6 +12,7 @@ from django_goals.models import (
     handle_waiting_for_failed_preconditions, handle_waiting_for_preconditions,
     handle_waiting_for_worker, remove_old_goals,
 )
+from django_goals.pickups import PickupMonitorThread
 
 from .goals_busy_worker import stop_signal_handler
 
@@ -95,6 +96,9 @@ def threaded_worker(worker_specs=None, stop_event=None, once=False):
     if stop_event is None:
         stop_event = threading.Event()
 
+    pickup_monitor = PickupMonitorThread()
+    pickup_monitor.start()
+
     total_workers = sum(count for count, _ in worker_specs)
     workers_state = WorkersState(total_workers + 1)  # +1 for transitions thread
 
@@ -117,6 +121,7 @@ def threaded_worker(worker_specs=None, stop_event=None, once=False):
                     workers_state=workers_state,
                     thread_id=f"worker_{worker_id}",
                     deadline_horizon=horizon,
+                    pickup_monitor=pickup_monitor,
                 )
             )
             worker_id += 1
@@ -127,15 +132,22 @@ def threaded_worker(worker_specs=None, stop_event=None, once=False):
     for thread in threads:
         thread.join()
 
+    pickup_monitor.shutdown()
+    pickup_monitor.join()
+
 
 class HeavyLiftingThread(threading.Thread):
-    def __init__(self, stop_event, once, workers_state, thread_id, deadline_horizon=None):
+    def __init__(
+        self, stop_event, once, workers_state, thread_id, deadline_horizon=None,
+        pickup_monitor=None,
+    ):
         super().__init__()
         self.stop_event = stop_event
         self.once = once
         self.workers_state = workers_state
         self.thread_id = thread_id
         self.deadline_horizon = deadline_horizon
+        self.pickup_monitor = pickup_monitor
 
     def run(self):
         logger.info('Busy-wait worker started, deadline_horizon: %s', self.deadline_horizon)
@@ -143,7 +155,10 @@ class HeavyLiftingThread(threading.Thread):
         while not self.stop_event.is_set():
             with self.workers_state.work_session(self.thread_id):
                 try:
-                    did_work = handle_waiting_for_worker(deadline_horizon=self.deadline_horizon)
+                    did_work = handle_waiting_for_worker(
+                        deadline_horizon=self.deadline_horizon,
+                        pickup_monitor=self.pickup_monitor,
+                    )
                 except Exception as e:
                     logger.exception(e)
                     # Treat exceptions as if we didn't do work
