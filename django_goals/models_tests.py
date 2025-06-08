@@ -5,8 +5,10 @@ import pytest
 from .factories import GoalFactory
 from .models import (
     GoalState, PreconditionFailureBehavior, PreconditionsMode,
-    handle_unblocked_goals, schedule, unblock_retry_goal,
+    handle_unblocked_goals, handle_waiting_for_worker, schedule,
+    unblock_retry_goal,
 )
+from .pickups import GoalPickup
 
 
 @pytest.mark.django_db
@@ -32,6 +34,17 @@ def test_retry_dependent_on(goal):
     handle_unblocked_goals()
     next_goal.refresh_from_db()
     assert next_goal.state == GoalState.WAITING_FOR_DATE
+
+
+@pytest.mark.django_db
+def test_handle_waiting_for_worker_killer_task(settings):
+    settings.GOALS_MAX_PICKUPS = 2
+    goal = GoalFactory(state=GoalState.WAITING_FOR_WORKER)
+    for _ in range(2):
+        GoalPickup.objects.create(goal=goal)
+    handle_waiting_for_worker()
+    goal.refresh_from_db()
+    assert goal.state == GoalState.IT_IS_A_KILLER_TASK
 
 
 def noop(goal):  # pylint: disable=unused-argument

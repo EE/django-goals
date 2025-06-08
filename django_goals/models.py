@@ -42,12 +42,15 @@ class GoalState(models.TextChoices):
     GIVEN_UP = 'given_up'
     # Goal is waiting on a precondition that wont be achieved
     NOT_GOING_TO_HAPPEN_SOON = 'not_going_to_happen_soon'
+    # Many workers perished without a trace working on this goal
+    IT_IS_A_KILLER_TASK = 'it_is_a_killer_task'
 
 
 NOT_GOING_TO_HAPPEN_SOON_STATES = (
     GoalState.BLOCKED,
     GoalState.GIVEN_UP,
     GoalState.NOT_GOING_TO_HAPPEN_SOON,
+    GoalState.IT_IS_A_KILLER_TASK,
 )
 
 
@@ -239,6 +242,7 @@ def unblock_retry_goal(goal_id):
     if goal.state not in NOT_GOING_TO_HAPPEN_SOON_STATES:
         raise ValueError(f'Cannot unblock/retry goal in state {goal.state}')
     _mark_as_unfailed([goal_id])
+    GoalPickup.objects.filter(goal_id=goal_id).delete()
     return goal
 
 
@@ -387,6 +391,16 @@ def handle_waiting_for_worker(deadline_horizon=None, pickup_monitor=None):
     ).first()
     if goal is None:
         # nothing to do
+        return None
+
+    # is it a killer task?
+    GOALS_MAX_PICKUPS = getattr(settings, 'GOALS_MAX_PICKUPS', None)
+    if (
+        GOALS_MAX_PICKUPS is not None and
+        goal.pickups.count() >= GOALS_MAX_PICKUPS
+    ):
+        logger.warning('Goal %s is a killer task, not pursuing it', goal.id)
+        _mark_as_failed([goal.id], target_state=GoalState.IT_IS_A_KILLER_TASK)
         return None
 
     if pickup_monitor is not None:
