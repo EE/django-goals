@@ -27,6 +27,7 @@ class Migration(migrations.Migration):
                     ('achieved', 'Achieved'),
                     ('given_up', 'Given Up'),
                     ('not_going_to_happen_soon', 'Not Going To Happen Soon'),
+                    ('it_is_a_killer_task', 'It Is A Killer Task'),
                 ], db_index=True, default='waiting_for_date', max_length=30)),
                 ('handler', models.CharField(max_length=100)),
                 ('instructions', models.JSONField(null=True)),
