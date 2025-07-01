@@ -2,7 +2,8 @@ import time
 
 from django.core.management.base import BaseCommand
 
-from django_goals.models import AllDone, schedule, wait
+from django_goals.models import AllDone, schedule
+from django_goals.notifications import wait
 
 
 def pursue(goal):
