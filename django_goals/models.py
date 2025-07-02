@@ -656,17 +656,28 @@ def schedule(
         preconditions_mode=preconditions_mode,
         precondition_failure_behavior=precondition_failure_behavior,
     )
+
+    return _schedule(goal, precondition_goals, listen=listen)
+
+
+def _schedule_core(goal, precondition_goals, listen):
     if listen:
         listen_goal_progress(goal.id)
 
     with transaction.atomic():
         goal.save()
         _add_precondition_goals(goal, precondition_goals)
-        if state == GoalState.WAITING_FOR_WORKER:
+        if goal.state == GoalState.WAITING_FOR_WORKER:
             with connections['default'].cursor() as cursor:
                 notify_goal_waiting_for_worker(cursor, goal.id)
 
     return goal
+
+
+_schedule = _schedule_core
+for middleware_path in reversed(getattr(settings, 'GOALS_SCHEDULE_MIDDLEWARE', [])):
+    middleware = import_string(middleware_path)
+    _schedule = middleware(_schedule)
 
 
 def _add_precondition_goals(goal, precondition_goals):
