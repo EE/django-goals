@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/python
 
-      - run: poetry run pip install --upgrade --upgrade-strategy eager -- django==${{ matrix.django }}
+      - run: poetry run -- pip install --upgrade --upgrade-strategy eager -- django==${{ matrix.django }}
 
       - name: Run pytest
         run: poetry run pytest
