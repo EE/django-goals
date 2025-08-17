@@ -1,6 +1,6 @@
 # Django Goals
 
-Django Goals is a workflow engine for Django that treats tasks as goals to be achieved rather than procedures to execute. It uses PostgreSQL's transaction system to reliably distribute work across multiple workers - without requiring any additional infrastructure.
+Django Goals is a database-native workflow engine for Django. Unlike traditional task queues that need Redis or RabbitMQ, it uses PostgreSQL's transaction system to coordinate work - no additional infrastructure required. Tasks are stateful Django models that can pause, resume, and dynamically modify their dependencies while running.
 
 You can use Django Goals as a classic DAG workflow engine, where you define task dependencies upfront and the system executes them in the correct order.
 
