@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="goal",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     ("precondition_failure_behavior__in", ["block", "proceed"])
                 ),
                 name="goals_precondition_failure_behavior",
