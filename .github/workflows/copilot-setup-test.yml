@@ -1,10 +1,10 @@
-name: Copilot Environment Setup Test
+name: Test Django Goals Composite Action
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - '.github/copilot-config.yml'
+      - '.github/workflows/copilot-setup-steps.yml'
       - '.github/actions/setup-django-goals/**'
 
 jobs:

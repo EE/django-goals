@@ -56,5 +56,5 @@ steps:
 - Verifies Django Goals can be imported and used
 
 This action is used by:
-- `.github/copilot-config.yml` for GitHub Copilot environment setup
+- `.github/workflows/copilot-setup-steps.yml` for GitHub Copilot environment setup
 - `.github/workflows/copilot-setup-test.yml` for testing the setup

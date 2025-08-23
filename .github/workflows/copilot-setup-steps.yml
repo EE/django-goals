@@ -1,0 +1,56 @@
+name: "Copilot Setup Steps"
+
+# Automatically run the setup steps when they are changed to allow for easy validation, and
+# allow manual testing through the repository's "Actions" tab
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/setup-django-goals/**
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/setup-django-goals/**
+
+jobs:
+  # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+
+    # Set the permissions to the lowest permissions possible needed for your steps.
+    # Copilot will be given its own token for its operations.
+    permissions:
+      # If you want to clone the repository as part of your setup steps, for example to install dependencies, you'll need the `contents: read` permission. If you don't clone the repository in your setup steps, Copilot will do this for you automatically after the steps complete.
+      contents: read
+
+    # PostgreSQL service for database functionality
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgrespass
+          POSTGRES_DB: django_goals
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    # You can define any steps you want, and they will run before the agent starts.
+    # If you do not check out your code, Copilot will do this for you.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Django Goals Environment
+        uses: ./.github/actions/setup-django-goals
+        
+      - name: Verify Django Goals setup
+        run: |
+          echo "🚀 Django Goals environment ready for development"
+          poetry run python -c "import django_goals; print('✅ django-goals imported successfully')"
+          echo "📋 Available Django Goals commands:"
+          poetry run python manage.py help | grep -E "goals_" || echo "No goals_ commands found"

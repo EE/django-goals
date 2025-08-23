@@ -52,7 +52,7 @@ This repository includes a GitHub Copilot configuration that automatically sets 
 - Django migrations and environment configuration
 - All necessary development dependencies
 
-The environment is configured via `.github/copilot-config.yml` and uses a reusable composite action at `.github/actions/setup-django-goals/action.yml`. This ensures consistent setup across development environments and CI/CD pipelines.
+The environment is configured via `.github/workflows/copilot-setup-steps.yml` following GitHub's documented format for Copilot environment customization. It uses a reusable composite action at `.github/actions/setup-django-goals/action.yml` to ensure consistent setup across development environments and CI/CD pipelines.
 
 ### Manual Development Setup
 
