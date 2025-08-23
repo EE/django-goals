@@ -1,0 +1,38 @@
+name: Setup Django Goals Environment
+description: Set up complete environment for Django Goals development including Python, Poetry, PostgreSQL, and dependencies
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python environment
+      uses: ./.github/actions/python
+      
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y postgresql-client build-essential
+      
+    - name: Configure database environment
+      shell: bash  
+      run: |
+        # Update .env file with database URL
+        if [ -f .env ]; then
+          sed -i 's/DATABASE_URL=.*//' .env
+        fi
+        echo "DATABASE_URL=postgresql://postgres:postgrespass@localhost:5432/django_goals" >> .env
+        
+    - name: Run Django setup
+      shell: bash
+      run: |
+        # Run migrations and basic Django checks
+        poetry run python manage.py migrate --run-syncdb
+        poetry run python manage.py check
+        
+    - name: Verify environment
+      shell: bash
+      run: |
+        echo "🚀 Django Goals environment ready for development"
+        poetry run python -c "import django_goals; print('✅ django-goals imported successfully')"
+        echo "📋 Available management commands:"
+        poetry run python manage.py help | grep -E "(goals_|Available)"
