@@ -541,6 +541,8 @@ def follow_instructions(goal):
         instructions = {}
     assert thread_local.current_goal is None
     thread_local.current_goal = goal
+    
+    start_time = None
     try:
         # Measure execution time starting from just before the actual function call
         # to exclude any scheduling/setup overhead
@@ -557,9 +559,14 @@ def follow_instructions(goal):
         
         return result
     except RetryMeLaterException as e:
-        execution_time = time.monotonic() - start_time if 'start_time' in locals() else 0
+        execution_time = time.monotonic() - start_time if start_time is not None else 0
         thread_local.execution_time = execution_time
         return RetryMeLater(**e.__dict__)
+    except Exception:
+        # For other exceptions, still try to capture timing if possible
+        execution_time = time.monotonic() - start_time if start_time is not None else 0
+        thread_local.execution_time = execution_time
+        raise
     finally:
         thread_local.current_goal = None
 
