@@ -41,31 +41,6 @@ Run the migrations to create the necessary database tables:
 python manage.py migrate
 ```
 
-## Development Setup
-
-### GitHub Copilot Environment
-
-This repository includes a GitHub Copilot configuration that automatically sets up a complete development environment. The setup includes:
-
-- Python 3.13 with Poetry dependency management
-- PostgreSQL database service
-- Django migrations and environment configuration
-- All necessary development dependencies
-
-The environment is configured via `.github/workflows/copilot-setup-steps.yml` following GitHub's documented format for Copilot environment customization. It uses a reusable composite action at `.github/actions/setup-django-goals/action.yml` to ensure consistent setup across development environments and CI/CD pipelines.
-
-### Manual Development Setup
-
-If you prefer to set up the environment manually:
-
-1. **Requirements**: Python 3.13+, Poetry, PostgreSQL
-2. **Install dependencies**: `poetry install`
-3. **Configure database**: Copy `example.env` to `.env` and update `DATABASE_URL`
-4. **Run migrations**: `poetry run python manage.py migrate`
-5. **Verify setup**: `poetry run python manage.py check`
-
-The composite action replicates these steps automatically for GitHub Copilot environments.
-
 ## Setup and Usage
 
 ### Defining a Goal

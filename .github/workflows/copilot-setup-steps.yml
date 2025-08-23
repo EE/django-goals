@@ -7,11 +7,9 @@ on:
   push:
     paths:
       - .github/workflows/copilot-setup-steps.yml
-      - .github/actions/setup-django-goals/**
   pull_request:
     paths:
       - .github/workflows/copilot-setup-steps.yml
-      - .github/actions/setup-django-goals/**
 
 jobs:
   # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
@@ -45,12 +43,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Django Goals Environment
-        uses: ./.github/actions/setup-django-goals
+      - name: Set up Python environment
+        uses: ./.github/actions/python
         
+      - name: Configure database environment
+        run: |
+          # Update .env file with database URL
+          if [ -f .env ]; then
+            sed -i 's/DATABASE_URL=.*//' .env
+          fi
+          echo "DATABASE_URL=postgresql://postgres:postgrespass@localhost:5432/django_goals" >> .env
+          
+      - name: Run Django setup
+        run: |
+          # Run migrations and basic Django checks
+          poetry run python manage.py migrate --run-syncdb
+          poetry run python manage.py check
+          
       - name: Verify Django Goals setup
         run: |
           echo "🚀 Django Goals environment ready for development"
           poetry run python -c "import django_goals; print('✅ django-goals imported successfully')"
-          echo "📋 Available Django Goals commands:"
-          poetry run python manage.py help | grep -E "goals_" || echo "No goals_ commands found"
