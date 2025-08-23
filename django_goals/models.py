@@ -426,7 +426,10 @@ class FsckMiddleware:
 
 def _pursue_goal_core(goal, now, pickup_monitor=None):
     logger.info('Just about to pursue goal %s: %s', goal.id, goal.handler)
-    start_time = time.monotonic()
+    
+    # Clear any previous execution time
+    thread_local.execution_time = None
+    
     try:
         ret = follow_instructions(goal)
 
@@ -464,7 +467,9 @@ def _pursue_goal_core(goal, now, pickup_monitor=None):
             message = ''
             goal.state = GoalState.ACHIEVED
 
-    time_taken = time.monotonic() - start_time
+    # Use the more precise execution time from follow_instructions,
+    # which excludes scheduling and setup overhead
+    time_taken = thread_local.execution_time or 0
 
     # decrease waiting-for counter in dependent goals
     if goal.state == GoalState.ACHIEVED:
@@ -515,6 +520,7 @@ for middleware_path in reversed(getattr(settings, 'GOALS_MIDDLEWARE', [
 class GoalsThreadLocal(threading.local):
     def __init__(self):
         self.current_goal = None
+        self.execution_time = None
 
 
 thread_local = GoalsThreadLocal()
@@ -536,12 +542,23 @@ def follow_instructions(goal):
     assert thread_local.current_goal is None
     thread_local.current_goal = goal
     try:
-        return func(
+        # Measure execution time starting from just before the actual function call
+        # to exclude any scheduling/setup overhead
+        start_time = time.monotonic()
+        result = func(
             goal,
             *instructions.get('args', ()),
             **instructions.get('kwargs', {}),
         )
+        execution_time = time.monotonic() - start_time
+        
+        # Store the execution time in thread local for use in _pursue_goal_core
+        thread_local.execution_time = execution_time
+        
+        return result
     except RetryMeLaterException as e:
+        execution_time = time.monotonic() - start_time if 'start_time' in locals() else 0
+        thread_local.execution_time = execution_time
         return RetryMeLater(**e.__dict__)
     finally:
         thread_local.current_goal = None
