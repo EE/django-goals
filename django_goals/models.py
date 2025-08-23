@@ -276,12 +276,41 @@ def _mark_as_unfailed(goal_ids):
     """
     if not goal_ids:
         return
-    Goal.objects.filter(id__in=goal_ids).update(state=GoalState.WAITING_FOR_DATE)
-    # update waiting-for failed count in dependent goals
+    
+    now = timezone.now()
+    
+    # Process each goal individually to determine correct state
+    for goal in Goal.objects.filter(id__in=goal_ids).select_for_update():
+        # Determine correct state based on preconditions and date
+        if goal.precondition_date > now:
+            # Future date - should wait for date (original behavior for future dates)
+            new_state = GoalState.WAITING_FOR_DATE
+        elif goal.waiting_for_count > 0:
+            # Current/past date but has unachieved preconditions - should wait for preconditions
+            new_state = GoalState.WAITING_FOR_PRECONDITIONS
+        else:
+            # Current/past date and no preconditions - go to waiting for date (let normal flow handle it)
+            # This preserves the original behavior for goals with no preconditions
+            new_state = GoalState.WAITING_FOR_DATE
+        
+        goal.state = new_state
+        goal.save(update_fields=['state'])
+    
+    # Update waiting-for failed count in dependent goals - but avoid going negative
     Goal.objects.filter(
         precondition_goals__id__in=goal_ids,
+        waiting_for_failed_count__gt=0,
     ).update(
         waiting_for_failed_count=models.F('waiting_for_failed_count') - 1,
+    )
+    
+    # For goals with PROCEED failure behavior, we need to increase waiting_for_count
+    # when preconditions are unfailed (since they were previously being skipped)
+    Goal.objects.filter(
+        precondition_goals__id__in=goal_ids,
+        precondition_failure_behavior=PreconditionFailureBehavior.PROCEED,
+    ).update(
+        waiting_for_count=models.F('waiting_for_count') + 1,
     )
 
 
