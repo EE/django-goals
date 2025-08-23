@@ -3,6 +3,7 @@ import queue
 import threading
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -54,3 +55,31 @@ class PickupMonitorThread(threading.Thread):
 
     def shutdown(self):
         self.event_queue.shutdown()
+
+
+class Middleware:
+    def __init__(self, wrapped):
+        self.wrapped = wrapped
+
+    def __call__(self, goal, now, pickup_monitor=None):
+        from .models import GoalState, _mark_as_failed
+
+        # is it a killer task?
+        GOALS_MAX_PICKUPS = getattr(settings, 'GOALS_MAX_PICKUPS', None)
+        if (
+            GOALS_MAX_PICKUPS is not None and
+            goal.pickups.count() >= GOALS_MAX_PICKUPS
+        ):
+            logger.warning('Goal %s is a killer task, not pursuing it', goal.id)
+            _mark_as_failed([goal.id], target_state=GoalState.IT_IS_A_KILLER_TASK)
+            return None
+
+        if pickup_monitor is not None:
+            pickup_monitor.pickup(goal.id)
+
+        progress = self.wrapped(goal, now, pickup_monitor=pickup_monitor)
+
+        if pickup_monitor is not None:
+            pickup_monitor.release(goal.id)
+
+        return progress

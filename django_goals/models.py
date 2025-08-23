@@ -165,7 +165,7 @@ class Goal(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     waiting_for_count__lte=1,
                     preconditions_mode=PreconditionsMode.ANY,
                 ) | models.Q(
@@ -174,7 +174,7 @@ class Goal(models.Model):
                 name='goals_waiting_for_count_any',
             ),
             models.CheckConstraint(
-                condition=models.Q(precondition_failure_behavior__in=PreconditionFailureBehavior.values),
+                check=models.Q(precondition_failure_behavior__in=PreconditionFailureBehavior.values),
                 name='goals_precondition_failure_behavior',
             ),
         ]
@@ -393,39 +393,38 @@ def handle_waiting_for_worker(deadline_horizon=None, pickup_monitor=None):
         # nothing to do
         return None
 
-    # is it a killer task?
-    GOALS_MAX_PICKUPS = getattr(settings, 'GOALS_MAX_PICKUPS', None)
-    if (
-        GOALS_MAX_PICKUPS is not None and
-        goal.pickups.count() >= GOALS_MAX_PICKUPS
-    ):
-        logger.warning('Goal %s is a killer task, not pursuing it', goal.id)
-        _mark_as_failed([goal.id], target_state=GoalState.IT_IS_A_KILLER_TASK)
-        return None
+    return _pursue_goal(goal, now, pickup_monitor=pickup_monitor)
 
-    if pickup_monitor is not None:
-        pickup_monitor.pickup(goal.id)
 
-    if now < goal.precondition_date:
-        logger.warning('Precondition date bug in goal %s. Precondition date is in the future', goal.id)
-    if (
-        goal.preconditions_mode == PreconditionsMode.ALL and
-        goal.waiting_for_count != 0
-    ):
-        logger.warning('Waiting-for bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_count)
-    if (
-        goal.preconditions_mode == PreconditionsMode.ANY and
-        goal.waiting_for_count > 0
-    ):
-        logger.warning('Waiting-for (ANY mode) bug in goal %s. Expected 0 or less, got %s', goal.id, goal.waiting_for_count)
-    if goal.waiting_for_failed_count < 0:
-        logger.warning('Waiting-for-failed bug in goal %s. Expected 0 or more, got %s', goal.id, goal.waiting_for_failed_count)
-    if (
-        goal.precondition_failure_behavior == PreconditionFailureBehavior.BLOCK and
-        goal.waiting_for_failed_count != 0
-    ):
-        logger.warning('Waiting-for-failed (BLOCK mode) bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_failed_count)
+class FsckMiddleware:
+    def __init__(self, wrapped):
+        self.wrapped = wrapped
 
+    def __call__(self, goal, now, pickup_monitor=None):
+        if now < goal.precondition_date:
+            logger.warning('Precondition date bug in goal %s. Precondition date is in the future', goal.id)
+        if (
+            goal.preconditions_mode == PreconditionsMode.ALL and
+            goal.waiting_for_count != 0
+        ):
+            logger.warning('Waiting-for bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_count)
+        if (
+            goal.preconditions_mode == PreconditionsMode.ANY and
+            goal.waiting_for_count > 0
+        ):
+            logger.warning('Waiting-for (ANY mode) bug in goal %s. Expected 0 or less, got %s', goal.id, goal.waiting_for_count)
+        if goal.waiting_for_failed_count < 0:
+            logger.warning('Waiting-for-failed bug in goal %s. Expected 0 or more, got %s', goal.id, goal.waiting_for_failed_count)
+        if (
+            goal.precondition_failure_behavior == PreconditionFailureBehavior.BLOCK and
+            goal.waiting_for_failed_count != 0
+        ):
+            logger.warning('Waiting-for-failed (BLOCK mode) bug in goal %s. Expected 0, got %s', goal.id, goal.waiting_for_failed_count)
+
+        return self.wrapped(goal, now, pickup_monitor=pickup_monitor)
+
+
+def _pursue_goal_core(goal, now, pickup_monitor=None):
     logger.info('Just about to pursue goal %s: %s', goal.id, goal.handler)
     start_time = time.monotonic()
     try:
@@ -501,10 +500,16 @@ def handle_waiting_for_worker(deadline_horizon=None, pickup_monitor=None):
     goal.save(update_fields=['state', 'precondition_date'])
     notify_goal_progress(goal.id, goal.state)
 
-    if pickup_monitor is not None:
-        pickup_monitor.release(goal.id)
-
     return progress
+
+
+_pursue_goal = _pursue_goal_core
+for middleware_path in reversed(getattr(settings, 'GOALS_MIDDLEWARE', [
+    'django_goals.pickups.Middleware',
+    'django_goals.models.FsckMiddleware',
+])):
+    middleware = import_string(middleware_path)
+    _pursue_goal = middleware(_pursue_goal)
 
 
 class GoalsThreadLocal(threading.local):
@@ -651,17 +656,28 @@ def schedule(
         preconditions_mode=preconditions_mode,
         precondition_failure_behavior=precondition_failure_behavior,
     )
+
+    return _schedule(goal, precondition_goals, listen=listen)
+
+
+def _schedule_core(goal, precondition_goals, listen):
     if listen:
         listen_goal_progress(goal.id)
 
     with transaction.atomic():
         goal.save()
         _add_precondition_goals(goal, precondition_goals)
-        if state == GoalState.WAITING_FOR_WORKER:
+        if goal.state == GoalState.WAITING_FOR_WORKER:
             with connections['default'].cursor() as cursor:
                 notify_goal_waiting_for_worker(cursor, goal.id)
 
     return goal
+
+
+_schedule = _schedule_core
+for middleware_path in reversed(getattr(settings, 'GOALS_SCHEDULE_MIDDLEWARE', [])):
+    middleware = import_string(middleware_path)
+    _schedule = middleware(_schedule)
 
 
 def _add_precondition_goals(goal, precondition_goals):

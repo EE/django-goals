@@ -10,6 +10,14 @@ on:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        python-deps:
+          - django==4.2.*
+          - django==5.2.*
+          - django-object-actions==4.3.*
+          - django-object-actions==5.*
+
     runs-on: ubuntu-latest
 
     services:
@@ -33,6 +41,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/python
+
+      - run: poetry run -- pip install --upgrade --upgrade-strategy eager -- ${{ matrix.python-deps }}
 
       - name: Run pytest
         run: poetry run pytest
