@@ -90,7 +90,7 @@ class Goal(models.Model):
         help_text=_('Goal will not be pursued before this date.'),
     )
 
-    precondition_goals = models.ManyToManyField(
+    precondition_goals: models.ManyToManyField = models.ManyToManyField(
         to='self',
         symmetrical=False,
         related_name='dependent_goals',
@@ -135,7 +135,10 @@ class Goal(models.Model):
                 name='goals_waiting_for_date_idx',
             ),
             models.Index(
-                models.Q(waiting_for_count__lte=0),
+                models.ExpressionWrapper(
+                    models.Q(waiting_for_count__lte=0),
+                    output_field=models.BooleanField(),
+                ),
                 condition=models.Q(state=GoalState.WAITING_FOR_PRECONDITIONS),
                 name='goals_waiting_for_precond_idx',
             ),

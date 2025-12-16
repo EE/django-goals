@@ -21,7 +21,14 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name='goal',
-            index=models.Index(models.Q(('waiting_for_count__lte', 0)), condition=models.Q(('state', 'waiting_for_preconditions')), name='goals_waiting_for_precond_idx'),
+            index=models.Index(
+                models.ExpressionWrapper(
+                    models.Q(waiting_for_count__lte=0),
+                    output_field=models.BooleanField(),
+                ),
+                condition=models.Q(('state', 'waiting_for_preconditions')),
+                name='goals_waiting_for_precond_idx',
+            ),
         ),
         migrations.AddConstraint(
             model_name='goal',

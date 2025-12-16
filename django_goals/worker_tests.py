@@ -63,7 +63,7 @@ def test_handle_waiting_for_worker_success(goal):
 @pytest.mark.django_db
 @pytest.mark.parametrize('goal', [{
     'state': GoalState.WAITING_FOR_WORKER,
-    'precondition_date': timezone.now() - timezone.timedelta(days=1),
+    'precondition_date': timezone.now() - datetime.timedelta(days=1),
 }], indirect=True)
 def test_handle_waiting_for_worker_failure(goal):
     now = timezone.now()
@@ -87,7 +87,7 @@ def test_handle_waiting_for_worker_failure(goal):
 def test_handle_waiting_for_worker_retry(goal):
     other_goals = GoalFactory.create_batch(2, state=GoalState.WAITING_FOR_WORKER)
     failed_goals = GoalFactory.create_batch(1, state=GoalState.NOT_GOING_TO_HAPPEN_SOON)
-    precondition_date = timezone.now() + timezone.timedelta(days=1)
+    precondition_date = timezone.now() + datetime.timedelta(days=1)
     with mock.patch('django_goals.models.follow_instructions') as follow_instructions:
         follow_instructions.return_value = RetryMeLater(
             precondition_date=precondition_date,
@@ -134,7 +134,7 @@ def test_handle_waiting_for_worker_retry_precond_already_present(goal, already_p
     'handler': 'os.path.join',
 }], indirect=True)
 def test_handle_waiting_for_worker_retry_by_exception(goal):
-    precondition_date = timezone.now() + timezone.timedelta(days=1)
+    precondition_date = timezone.now() + datetime.timedelta(days=1)
     with mock.patch('os.path.join') as handler:
         handler.side_effect = RetryMeLaterException(
             precondition_date=precondition_date,

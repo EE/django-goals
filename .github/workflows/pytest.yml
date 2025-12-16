@@ -48,3 +48,6 @@ jobs:
         run: poetry run pytest
         env:
           DATABASE_URL: postgresql://postgres:postgrespass@localhost:5432/django_goals
+
+      - name: mypy
+        run: poetry run mypy .

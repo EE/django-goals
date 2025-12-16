@@ -32,6 +32,9 @@ psycopg = "*"
 pylint = "*"
 pylint-django = "*"
 cosmic-ray = "*"
+mypy = "*"
+django-stubs = {extras = ["compatible-mypy"], version = "*"}
+sentry-sdk = "*"
 
 
 [build-system]
@@ -75,3 +78,9 @@ disable = [
 
 [tool.pylint.pylint_django]
 django-settings-module = "example_project.settings"
+
+[tool.mypy]
+plugins = ["mypy_django_plugin.main"]
+
+[tool.django-stubs]
+django_settings_module = "example_project.settings"
