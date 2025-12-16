@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.urls.exceptions import NoReverseMatch
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext as _
-from django_object_actions import DjangoObjectActions, action
+from django_object_actions import DjangoObjectActions, action  # type: ignore
 
 from .models import (
     Goal, GoalDependency, GoalProgress, block_goal, unblock_retry_goal,
