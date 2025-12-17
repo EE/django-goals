@@ -22,7 +22,7 @@ class PartitionSort(models.Model):
     subsort_high = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
     low_done = models.BooleanField(default=False)
     high_done = models.BooleanField(default=False)
-    sorted_numbers = ArrayField(models.IntegerField(), null=True, blank=True)
+    sorted_numbers = ArrayField(models.IntegerField(null=True), null=True, blank=True)
     goal = models.ForeignKey(Goal, null=True, blank=True, on_delete=models.SET_NULL)
 
 
@@ -70,8 +70,13 @@ def ensure_sorted(goal):
             message='Waiting for at least one subsort to complete',
         )
 
+    assert sort.subsort_low is not None, "Subsort low must be set after partitioning"
+    assert sort.subsort_high is not None, "Subsort high must be set after partitioning"
+    assert sort.sorted_numbers is not None, "Sorted numbers must be initialized after partitioning"
+
     # Copy low sort if done
     if is_goal_completed(sort.subsort_low.goal) and not sort.low_done:
+        assert sort.subsort_low.sorted_numbers is not None, "Low subsort must be sorted here, because its goal is completed"
         sort.sorted_numbers[:len(sort.subsort_low.sorted_numbers)] = sort.subsort_low.sorted_numbers
         sort.low_done = True
         sort.save(update_fields=['sorted_numbers', 'low_done'])
@@ -79,6 +84,7 @@ def ensure_sorted(goal):
 
     # Copy high sort if done
     if is_goal_completed(sort.subsort_high.goal) and not sort.high_done:
+        assert sort.subsort_high.sorted_numbers is not None, "High subsort must be sorted here, because its goal is completed"
         if sort.subsort_high.sorted_numbers:  # zero length wont work with negative slicing
             sort.sorted_numbers[-len(sort.subsort_high.sorted_numbers):] = sort.subsort_high.sorted_numbers
         sort.high_done = True

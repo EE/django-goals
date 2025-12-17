@@ -344,7 +344,7 @@ def handle_waiting_for_failed_preconditions():
     goals_qs = Goal.objects.all()
     transitions_done = 0
 
-    new_failed = goals_qs.filter(
+    new_failed_qs = goals_qs.filter(
         state=GoalState.WAITING_FOR_PRECONDITIONS,
         precondition_failure_behavior=PreconditionFailureBehavior.BLOCK,
         waiting_for_failed_count__gt=0,
@@ -352,7 +352,7 @@ def handle_waiting_for_failed_preconditions():
         no_key=True,
         skip_locked=True,
     ).values_list('id', flat=True)
-    new_failed = list(new_failed)
+    new_failed = list(new_failed_qs)
     _mark_as_failed(new_failed, target_state=GoalState.NOT_GOING_TO_HAPPEN_SOON)
     transitions_done += len(new_failed)
 
@@ -570,13 +570,13 @@ def remove_old_goals(now=None):
         return 0
     try:
         with transaction.atomic():
-            ids_to_delete = Goal.objects.filter(
+            ids_to_delete_qs = Goal.objects.filter(
                 state=GoalState.ACHIEVED,
                 created_at__lt=now - datetime.timedelta(seconds=retention_seconds),
             ).select_for_update(
                 skip_locked=True,
             ).values_list('id', flat=True)
-            ids_to_delete = list(ids_to_delete[:100])
+            ids_to_delete = list(ids_to_delete_qs[:100])
             if not ids_to_delete:
                 return 0
             GoalDependency.objects.filter(precondition_goal_id__in=ids_to_delete).delete()
@@ -620,12 +620,15 @@ def schedule(
     """
     state = GoalState.WAITING_FOR_DATE
 
-    instructions = {}
+    instructions_dict = {}
     if args is not None:
-        instructions['args'] = args
+        instructions_dict['args'] = args
     if kwargs is not None:
-        instructions['kwargs'] = kwargs
-    if not instructions:
+        instructions_dict['kwargs'] = kwargs
+
+    if instructions_dict:
+        instructions = instructions_dict
+    else:
         instructions = None
 
     if precondition_date is None:
@@ -640,7 +643,11 @@ def schedule(
         state = GoalState.WAITING_FOR_WORKER
     if blocked:
         state = GoalState.BLOCKED
-    func_name = inspect.getmodule(func).__name__ + '.' + func.__name__
+
+    module = inspect.getmodule(func)
+    if module is None:
+        raise ValueError('Cannot determine module of the function')
+    func_name = module.__name__ + '.' + func.__name__
 
     if deadline is None and thread_local.current_goal is not None:
         deadline = thread_local.current_goal.deadline

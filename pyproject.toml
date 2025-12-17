@@ -81,6 +81,11 @@ django-settings-module = "example_project.settings"
 
 [tool.mypy]
 plugins = ["mypy_django_plugin.main"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+strict_equality = true
+check_untyped_defs = true
 
 [tool.django-stubs]
 django_settings_module = "example_project.settings"

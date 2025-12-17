@@ -102,7 +102,7 @@ def threaded_worker(worker_specs=None, stop_event=None, once=False):
     total_workers = sum(count for count, _ in worker_specs)
     workers_state = WorkersState(total_workers + 1)  # +1 for transitions thread
 
-    threads = [
+    threads: list[threading.Thread] = [
         TransitionsThread(
             stop_event=stop_event,
             once=once,

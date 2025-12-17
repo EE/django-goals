@@ -56,7 +56,9 @@ def ensure_sorted(goal):
 
     # merge sorted subsorts
     a = merge_sort.subsort_a.sorted_numbers
+    assert a is not None, "Subsort A must be sorted here, because its goal is completed"
     b = merge_sort.subsort_b.sorted_numbers
+    assert b is not None, "Subsort B must be sorted here, because its goal is completed"
     i = j = 0
     result = []
     while i < len(a) and j < len(b):

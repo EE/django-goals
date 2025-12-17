@@ -26,7 +26,7 @@ def test_retry(goal):
 @pytest.mark.django_db
 @pytest.mark.parametrize('goal', [{'state': GoalState.GIVEN_UP}], indirect=True)
 def test_retry_dependent_on(goal):
-    next_goal = GoalFactory(
+    next_goal = GoalFactory.create(
         state=GoalState.NOT_GOING_TO_HAPPEN_SOON,
         precondition_goals=[goal],
     )
@@ -39,7 +39,7 @@ def test_retry_dependent_on(goal):
 @pytest.mark.django_db
 def test_handle_waiting_for_worker_killer_task(settings):
     settings.GOALS_MAX_PICKUPS = 2
-    goal = GoalFactory(state=GoalState.WAITING_FOR_WORKER)
+    goal = GoalFactory.create(state=GoalState.WAITING_FOR_WORKER)
     for _ in range(2):
         GoalPickup.objects.create(goal=goal)
     handle_waiting_for_worker()
@@ -54,7 +54,7 @@ def noop(goal):  # pylint: disable=unused-argument
 @pytest.mark.django_db
 def test_schedule_updates_deadline():
     now = datetime.datetime(2024, 11, 6, 11, 41, 0, tzinfo=datetime.timezone.utc)
-    goal_a = GoalFactory(deadline=now)
+    goal_a = GoalFactory.create(deadline=now)
     goal_b = GoalFactory(precondition_goals=[goal_a])
     schedule(
         noop,

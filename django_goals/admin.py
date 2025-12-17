@@ -26,7 +26,7 @@ class GoalDependencyInline(admin.TabularInline):
     )
     readonly_fields = fields
 
-    def has_add_permission(self, request, obj):
+    def has_add_permission(self, request, obj):  # type: ignore
         return False
 
     def has_change_permission(self, request, obj=None):
@@ -63,7 +63,7 @@ class GoalProgressInline(admin.TabularInline):
     model = GoalProgress
     extra = 0
 
-    def has_add_permission(self, request, obj):
+    def has_add_permission(self, request, obj):  # type: ignore
         return False
 
     def has_change_permission(self, request, obj=None):
@@ -77,7 +77,7 @@ class GoalPickupInline(admin.TabularInline):
     model = GoalPickup
     extra = 0
 
-    def has_add_permission(self, request, obj):
+    def has_add_permission(self, request, obj):  # type: ignore
         return False
 
     def has_change_permission(self, request, obj=None):

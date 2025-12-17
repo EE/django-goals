@@ -36,7 +36,7 @@ def test_handle_waiting_for_worker_return_value(goal):
     },
 }], indirect=True)
 def test_handle_waiting_for_worker_success(goal):
-    dependent_goal = GoalFactory(
+    dependent_goal = GoalFactory.create(
         waiting_for_count=42,
         precondition_goals=[goal],
     )
@@ -199,7 +199,7 @@ def test_handle_waiting_for_worker_any_mode_retry_without_goals(precond_state, e
     If all preconditions are achieved, we retry immediately.
     """
     precond = GoalFactory(state=precond_state)
-    goal = GoalFactory(
+    goal = GoalFactory.create(
         state=GoalState.WAITING_FOR_WORKER,
         handler='os.path.join',
         preconditions_mode=PreconditionsMode.ANY,
@@ -265,7 +265,7 @@ def test_handle_waiting_for_worker_any_mode_retry_with_stale_goal_state(goal, lo
     old_precond = GoalFactory(state=GoalState.WAITING_FOR_DATE)
     goal.precondition_goals.add(old_precond)
 
-    new_precond = GoalFactory(state=GoalState.ACHIEVED)
+    new_precond = GoalFactory.create(state=GoalState.ACHIEVED)
     new_precond.state = local_precond_state  # simulate we have stale state
 
     with mock.patch('os.path.join') as handler:
@@ -281,7 +281,7 @@ def test_handle_waiting_for_worker_any_mode_retry_with_stale_goal_state(goal, lo
 @pytest.mark.django_db
 @pytest.mark.parametrize('goal', [{'state': GoalState.WAITING_FOR_WORKER}], indirect=True)
 def test_handle_waiting_for_worker_max_progress_exceeded(goal, settings):
-    dependent_goal = GoalFactory(
+    dependent_goal = GoalFactory.create(
         waiting_for_failed_count=122,
         precondition_goals=[goal],
     )

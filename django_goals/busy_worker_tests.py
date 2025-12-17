@@ -1,3 +1,4 @@
+import datetime
 import time
 from unittest import mock
 
@@ -137,12 +138,12 @@ def test_time_limit(settings, time_limit, expected_success):
 )
 def test_old_achieved_goal_is_deleted(days_ago, state, expect_deleted):
     now = timezone.now()
-    goal = GoalFactory(
+    goal = GoalFactory.create(
         state=state,
-        created_at=now - timezone.timedelta(days=days_ago),
+        created_at=now - datetime.timedelta(days=days_ago),
     )
     GoalProgressFactory(goal=goal)
-    dependent_goal = GoalFactory(precondition_goals=[goal])
+    dependent_goal = GoalFactory.create(precondition_goals=[goal])
 
     worker_turn(now)
 
@@ -157,9 +158,9 @@ def test_old_achieved_goal_is_deleted(days_ago, state, expect_deleted):
 @pytest.mark.django_db
 def test_protected_old_achieved_goal():
     now = timezone.now()
-    goal = GoalFactory(
+    goal = GoalFactory.create(
         state=GoalState.ACHIEVED,
-        created_at=now - timezone.timedelta(days=31),
+        created_at=now - datetime.timedelta(days=31),
     )
     GoalRelatedModel.objects.create(goal=goal)
 
@@ -183,7 +184,7 @@ def schedule_another(goal):
 @pytest.mark.django_db
 def test_deadline_is_inherited():
     now = timezone.now()
-    goal = schedule(schedule_another, deadline=now + timezone.timedelta(days=1))
+    goal = schedule(schedule_another, deadline=now + datetime.timedelta(days=1))
     worker_turn(now)
     another_goal = Goal.objects.exclude(id=goal.id).get()
     assert another_goal.deadline == goal.deadline

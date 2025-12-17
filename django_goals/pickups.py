@@ -27,7 +27,7 @@ class GoalPickup(models.Model):
 class PickupMonitorThread(threading.Thread):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.event_queue = queue.Queue()
+        self.event_queue: queue.Queue[tuple[str, uuid.UUID]] = queue.Queue()
 
     def run(self):
         logger.info('Pickup monitor thread started')
