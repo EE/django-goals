@@ -77,7 +77,7 @@ def ensure_sorted(goal):
 
 
 @admin.register(MergeSort)
-class MergeSortAdmin(admin.ModelAdmin):
+class MergeSortAdmin(admin.ModelAdmin):  # type: ignore
     readonly_fields = (
         'goal',
         'subsort_a',

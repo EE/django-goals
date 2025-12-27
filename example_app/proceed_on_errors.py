@@ -17,7 +17,7 @@ class ErrorsBatch(GoalRelatedMixin, models.Model):
 
 
 @admin.register(ErrorsBatch)
-class ErrorsBatchAdmin(admin.ModelAdmin):
+class ErrorsBatchAdmin(admin.ModelAdmin):  # type: ignore
     list_display = ('id', 'desired', 'spawned', 'succeeded', 'failed')
     readonly_fields = ('id', 'spawned', 'succeeded', 'failed', 'processed_goal')
 

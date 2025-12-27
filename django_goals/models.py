@@ -90,7 +90,7 @@ class Goal(models.Model):
         help_text=_('Goal will not be pursued before this date.'),
     )
 
-    precondition_goals: models.ManyToManyField = models.ManyToManyField(
+    precondition_goals: 'models.ManyToManyField[Goal, GoalDependency]' = models.ManyToManyField(
         to='self',
         symmetrical=False,
         related_name='dependent_goals',

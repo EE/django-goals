@@ -14,7 +14,7 @@ from .models import (
 from .pickups import GoalPickup
 
 
-class GoalDependencyInline(admin.TabularInline):
+class GoalDependencyInline(admin.TabularInline):  # type: ignore
     model = GoalDependency
     fk_name = 'dependent_goal'
     extra = 0
@@ -59,7 +59,7 @@ class GoalDependencyInline(admin.TabularInline):
         return obj.precondition_goal.created_at
 
 
-class GoalProgressInline(admin.TabularInline):
+class GoalProgressInline(admin.TabularInline):  # type: ignore
     model = GoalProgress
     extra = 0
 
@@ -73,7 +73,7 @@ class GoalProgressInline(admin.TabularInline):
         return False
 
 
-class GoalPickupInline(admin.TabularInline):
+class GoalPickupInline(admin.TabularInline):  # type: ignore
     model = GoalPickup
     extra = 0
 
@@ -88,7 +88,7 @@ class GoalPickupInline(admin.TabularInline):
 
 
 @admin.register(Goal)
-class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):
+class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):  # type: ignore
     list_display = (
         'id', 'state', 'handler',
         'precondition_date',

@@ -198,7 +198,7 @@ def test_handle_waiting_for_worker_any_mode_retry_without_goals(precond_state, e
     In ANY mode, retry with precondition_goals=[] should wait for any not-achieved precondition.
     If all preconditions are achieved, we retry immediately.
     """
-    precond = GoalFactory(state=precond_state)
+    precond = GoalFactory.create(state=precond_state)
     goal = GoalFactory.create(
         state=GoalState.WAITING_FOR_WORKER,
         handler='os.path.join',

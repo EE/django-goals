@@ -3,7 +3,7 @@ import factory
 from .models import Goal, GoalProgress
 
 
-class GoalFactory(factory.django.DjangoModelFactory):
+class GoalFactory(factory.django.DjangoModelFactory[Goal]):
     class Meta:
         model = Goal
         skip_postgeneration_save = True
@@ -17,7 +17,7 @@ class GoalFactory(factory.django.DjangoModelFactory):
             self.precondition_goals.set(extracted)
 
 
-class GoalProgressFactory(factory.django.DjangoModelFactory):
+class GoalProgressFactory(factory.django.DjangoModelFactory[GoalProgress]):
     class Meta:
         model = GoalProgress
 

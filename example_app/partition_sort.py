@@ -96,7 +96,7 @@ def ensure_sorted(goal):
 
 
 @admin.register(PartitionSort)
-class PartitionSortAdmin(admin.ModelAdmin):
+class PartitionSortAdmin(admin.ModelAdmin):  # type: ignore
     readonly_fields = (
         'goal',
         'sorted_numbers',
