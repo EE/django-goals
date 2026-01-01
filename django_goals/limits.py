@@ -2,12 +2,13 @@ import gc
 import resource
 import signal
 from contextlib import contextmanager
+from typing import Any, Iterator
 
 from django.conf import settings
 
 
 @contextmanager
-def limit_memory():
+def limit_memory() -> Iterator[None]:
     limit_mib = getattr(settings, 'GOALS_MEMORY_LIMIT_MIB', None)
     if limit_mib is None:
         yield
@@ -27,12 +28,12 @@ class TimesUp(Exception):
     pass
 
 
-def sigalrm_handler(signum, frame):
+def sigalrm_handler(signum: int, frame: Any) -> None:
     raise TimesUp()
 
 
 @contextmanager
-def limit_time():
+def limit_time() -> Iterator[None]:
     seconds = getattr(settings, 'GOALS_TIME_LIMIT_SECONDS', None)
     if seconds is None:
         yield

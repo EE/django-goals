@@ -4,6 +4,7 @@ import logging
 import threading
 import time
 import uuid
+from typing import Callable, Iterable, Optional, Protocol
 
 from django.conf import settings
 from django.db import connections, models, transaction
@@ -182,7 +183,7 @@ class Goal(models.Model):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'{self.handler} ({self.state})'
 
 
@@ -225,7 +226,7 @@ class GoalProgress(models.Model):
 
 
 @transaction.atomic
-def block_goal(goal_id):
+def block_goal(goal_id: uuid.UUID) -> Goal:
     """
     Mark the goal as blocked, so it will not be pursued.
     """
@@ -237,7 +238,7 @@ def block_goal(goal_id):
 
 
 @transaction.atomic
-def unblock_retry_goal(goal_id):
+def unblock_retry_goal(goal_id: uuid.UUID) -> Goal:
     """
     Mark the goal as unblocked, so it can be pursued again.
     """
@@ -249,7 +250,7 @@ def unblock_retry_goal(goal_id):
     return goal
 
 
-def _mark_as_failed(goal_ids, target_state):
+def _mark_as_failed(goal_ids: list[uuid.UUID], target_state: GoalState) -> None:
     """
     All goal must be in waititng state.
     You must be in a transaction and have a lock on the goals.
@@ -272,7 +273,7 @@ def _mark_as_failed(goal_ids, target_state):
     )
 
 
-def _mark_as_unfailed(goal_ids):
+def _mark_as_unfailed(goal_ids: list[uuid.UUID]) -> None:
     """
     All goal_ids must be in NOT_GOING_TO_HAPPEN_SOON_STATES.
     You must be in a transaction and have a lock on the goals.
@@ -289,7 +290,7 @@ def _mark_as_unfailed(goal_ids):
 
 
 @transaction.atomic
-def handle_waiting_for_date(now=None):
+def handle_waiting_for_date(now: datetime.datetime | None = None) -> int:
     """
     Transition goals that are waiting for precondition date and the date has come.
     """
@@ -309,7 +310,7 @@ def handle_waiting_for_date(now=None):
 
 
 @transaction.atomic
-def handle_waiting_for_preconditions(goals_qs=None):
+def handle_waiting_for_preconditions(goals_qs: Optional['models.QuerySet[Goal]'] = None) -> int:
     """
     Transition goals that are waiting for precondition goals to be achieved
     and all (or any, depending on mode) preconditions are achieved.
@@ -318,14 +319,14 @@ def handle_waiting_for_preconditions(goals_qs=None):
         goals_qs = Goal.objects.all()
     transitions_done = 0
 
-    new_waiting_for_worker = goals_qs.filter(
+    new_waiting_for_worker_qs = goals_qs.filter(
         state=GoalState.WAITING_FOR_PRECONDITIONS,
         waiting_for_count__lte=0,
     ).select_for_update(
         no_key=True,
         skip_locked=True,
     ).values_list('id', flat=True)
-    new_waiting_for_worker = list(new_waiting_for_worker)
+    new_waiting_for_worker = list(new_waiting_for_worker_qs)
     if new_waiting_for_worker:
         Goal.objects.filter(id__in=new_waiting_for_worker).update(state=GoalState.WAITING_FOR_WORKER)
         with connections['default'].cursor() as cursor:
@@ -337,7 +338,7 @@ def handle_waiting_for_preconditions(goals_qs=None):
 
 
 @transaction.atomic
-def handle_waiting_for_failed_preconditions():
+def handle_waiting_for_failed_preconditions() -> int:
     """
     if a goal is waiting for preconditions that are failed, it's not going to happen soon
     """
@@ -360,7 +361,7 @@ def handle_waiting_for_failed_preconditions():
 
 
 @transaction.atomic
-def handle_unblocked_goals():
+def handle_unblocked_goals() -> int:
     """
     Transition goals that have no failed preconditions, yet are marked as not going to happen soon.
     """
@@ -377,7 +378,10 @@ def handle_unblocked_goals():
 
 
 @transaction.atomic
-def handle_waiting_for_worker(deadline_horizon=None, pickup_monitor=None):
+def handle_waiting_for_worker(
+    deadline_horizon: datetime.timedelta | None = None,
+    pickup_monitor: object | None = None,
+) -> GoalProgress | None:
     """
     Transition goals that are waiting for a worker to pick them up.
     """
@@ -399,11 +403,20 @@ def handle_waiting_for_worker(deadline_horizon=None, pickup_monitor=None):
     return _pursue_goal(goal, now, pickup_monitor=pickup_monitor)
 
 
+class PursueGoalT(Protocol):
+    def __call__(
+        self,
+        goal: Goal, now: datetime.datetime,
+        pickup_monitor: object | None = None
+    ) -> GoalProgress:
+        ...
+
+
 class FsckMiddleware:
-    def __init__(self, wrapped):
+    def __init__(self, wrapped: PursueGoalT):
         self.wrapped = wrapped
 
-    def __call__(self, goal, now, pickup_monitor=None):
+    def __call__(self, goal: Goal, now: datetime.datetime, pickup_monitor: object | None = None) -> GoalProgress:
         if now < goal.precondition_date:
             logger.warning('Precondition date bug in goal %s. Precondition date is in the future', goal.id)
         if (
@@ -427,7 +440,7 @@ class FsckMiddleware:
         return self.wrapped(goal, now, pickup_monitor=pickup_monitor)
 
 
-def _pursue_goal_core(goal, now, pickup_monitor=None):
+def _pursue_goal_core(goal: Goal, now: datetime.datetime, pickup_monitor: object | None = None) -> GoalProgress:
     logger.info('Just about to pursue goal %s: %s', goal.id, goal.handler)
     start_time = time.monotonic()
     try:
@@ -506,7 +519,7 @@ def _pursue_goal_core(goal, now, pickup_monitor=None):
     return progress
 
 
-_pursue_goal = _pursue_goal_core
+_pursue_goal: PursueGoalT = _pursue_goal_core
 for middleware_path in reversed(getattr(settings, 'GOALS_MIDDLEWARE', [
     'django_goals.pickups.Middleware',
     'django_goals.models.FsckMiddleware',
@@ -516,8 +529,8 @@ for middleware_path in reversed(getattr(settings, 'GOALS_MIDDLEWARE', [
 
 
 class GoalsThreadLocal(threading.local):
-    def __init__(self):
-        self.current_goal = None
+    def __init__(self) -> None:
+        self.current_goal: Optional[Goal] = None
 
 
 thread_local = GoalsThreadLocal()
@@ -528,7 +541,7 @@ thread_local = GoalsThreadLocal()
 # This is a savepoint that protects worker transaction so that we can always report progress.
 # Raw error in trnsaction would prevent from executing any queries inside it.
 @transaction.atomic
-def follow_instructions(goal):
+def follow_instructions(goal: Goal) -> 'RetryMeLater | AllDone':
     """
     Call the handler function with instructions.
     """
@@ -550,7 +563,7 @@ def follow_instructions(goal):
         thread_local.current_goal = None
 
 
-def get_retry_delay(failure_index):
+def get_retry_delay(failure_index: int) -> datetime.timedelta | None:
     """
     Get the delay before retrying the goal.
     failure_index is how many times the goal has failed (before this time). So first time this is called with 0.
@@ -562,7 +575,7 @@ def get_retry_delay(failure_index):
     return datetime.timedelta(seconds=10) * (2 ** failure_index)
 
 
-def remove_old_goals(now=None):
+def remove_old_goals(now: datetime.datetime | None = None) -> int:
     if now is None:
         now = timezone.now()
     retention_seconds = getattr(settings, 'GOALS_RETENTION_SECONDS', 60 * 60 * 24 * 7)
@@ -593,7 +606,7 @@ class RetryMeLater:
     """
     Like a process yielding in operating system.
     """
-    def __init__(self, precondition_date=None, precondition_goals=(), message=''):
+    def __init__(self, precondition_date: datetime.datetime | None = None, precondition_goals: Iterable[Goal] = (), message: str = ''):
         self.precondition_date = precondition_date
         self.precondition_goals = precondition_goals
         self.message = message
@@ -607,20 +620,27 @@ class AllDone:
     pass
 
 
+type JsonSerializable = str | int | float | bool | None | Iterable['JsonSerializable'] | dict[str, 'JsonSerializable']
+
+
 def schedule(
-    func, args=None, kwargs=None,
-    precondition_date=None, precondition_goals=None, blocked=False,
-    deadline=None,
-    listen=False,
-    preconditions_mode=PreconditionsMode.ALL,
-    precondition_failure_behavior=PreconditionFailureBehavior.BLOCK,
-):
+    func: Callable[[Goal], AllDone | RetryMeLater],
+    args: Iterable[JsonSerializable] | None = None,
+    kwargs: dict[str, JsonSerializable] | None = None,
+    precondition_date: datetime.datetime | None = None,
+    precondition_goals: Iterable[Goal] | None = None,
+    blocked: bool = False,
+    deadline: datetime.datetime | None = None,
+    listen: bool = False,
+    preconditions_mode: PreconditionsMode = PreconditionsMode.ALL,
+    precondition_failure_behavior: PreconditionFailureBehavior = PreconditionFailureBehavior.BLOCK,
+) -> Goal:
     """
     Schedule a goal to be pursued.
     """
     state = GoalState.WAITING_FOR_DATE
 
-    instructions_dict = {}
+    instructions_dict: dict[str, JsonSerializable] = {}
     if args is not None:
         instructions_dict['args'] = args
     if kwargs is not None:
@@ -670,7 +690,12 @@ def schedule(
     return _schedule(goal, precondition_goals, listen=listen)
 
 
-def _schedule_core(goal, precondition_goals, listen):
+class ScheduleGoalT(Protocol):
+    def __call__(self, goal: Goal, precondition_goals: Iterable[Goal] | None, listen: bool) -> Goal:
+        ...
+
+
+def _schedule_core(goal: Goal, precondition_goals: Iterable[Goal] | None, listen: bool) -> Goal:
     if listen:
         listen_goal_progress(goal.id)
 
@@ -684,13 +709,13 @@ def _schedule_core(goal, precondition_goals, listen):
     return goal
 
 
-_schedule = _schedule_core
+_schedule: ScheduleGoalT = _schedule_core
 for middleware_path in reversed(getattr(settings, 'GOALS_SCHEDULE_MIDDLEWARE', [])):
     middleware = import_string(middleware_path)
     _schedule = middleware(_schedule)
 
 
-def _add_precondition_goals(goal, precondition_goals):
+def _add_precondition_goals(goal: Goal, precondition_goals: Iterable[Goal] | None) -> None:
     # We can be sure current waiting count are zero, because goal can add preconditions only
     # in the handler or when scheduling a new goal.
     # However, waiting_for_not_achieved_count can be non-zero when running in ANY mode,
@@ -767,7 +792,7 @@ def _add_precondition_goals(goal, precondition_goals):
     ), goal.deadline)
 
 
-def update_goals_deadline(goals_qs, deadline):
+def update_goals_deadline(goals_qs: 'models.QuerySet[Goal]', deadline: datetime.datetime) -> None:
     goals_to_be_updated = list(goals_qs.filter(
         deadline__gt=deadline,
     ).exclude(

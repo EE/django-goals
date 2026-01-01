@@ -52,13 +52,15 @@ def ensure_sorted(goal):
                 high.append(num)
 
         # Create subsorts and schedule their goals
+        goal_low = schedule(ensure_sorted, preconditions_mode=PreconditionsMode.ANY)
         sort.subsort_low = PartitionSort.objects.create(
             numbers=low,
-            goal=schedule(ensure_sorted, preconditions_mode=PreconditionsMode.ANY),
+            goal=goal_low,
         )
+        goal_high = schedule(ensure_sorted, preconditions_mode=PreconditionsMode.ANY)
         sort.subsort_high = PartitionSort.objects.create(
             numbers=high,
-            goal=schedule(ensure_sorted, preconditions_mode=PreconditionsMode.ANY),
+            goal=goal_high,
         )
         sort.partition_done = True
         sort.sorted_numbers = [None] * len(low) + [pivot] + [None] * len(high)
@@ -66,7 +68,7 @@ def ensure_sorted(goal):
 
         # Wait for at least one subsort to complete
         return RetryMeLater(
-            precondition_goals=[sort.subsort_low.goal, sort.subsort_high.goal],
+            precondition_goals=[goal_low, goal_high],
             message='Waiting for at least one subsort to complete',
         )
 

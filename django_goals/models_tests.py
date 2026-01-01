@@ -55,7 +55,7 @@ def noop(goal):  # pylint: disable=unused-argument
 def test_schedule_updates_deadline():
     now = datetime.datetime(2024, 11, 6, 11, 41, 0, tzinfo=datetime.timezone.utc)
     goal_a = GoalFactory.create(deadline=now)
-    goal_b = GoalFactory(precondition_goals=[goal_a])
+    goal_b = GoalFactory.create(precondition_goals=[goal_a])
     schedule(
         noop,
         deadline=now - datetime.timedelta(minutes=1),
@@ -113,7 +113,7 @@ def test_schedule_any_mode_caps_waiting_for(failure_mode):
     ],
 )
 def test_schedule_failed_precond(failure_mode, expected_waiting_for_count):
-    failed_goal = GoalFactory(
+    failed_goal = GoalFactory.create(
         state=GoalState.GIVEN_UP,
     )
     goal = schedule(
@@ -130,7 +130,7 @@ def test_schedule_failed_precond(failure_mode, expected_waiting_for_count):
 @pytest.mark.django_db
 @pytest.mark.parametrize('blocked', [True, False])
 def test_schedule_blocked(blocked):
-    goal = GoalFactory(state=GoalState.WAITING_FOR_WORKER)
+    goal = GoalFactory.create(state=GoalState.WAITING_FOR_WORKER)
     next_goal = schedule(noop, precondition_goals=[goal], blocked=blocked)
     assert next_goal.state == (
         GoalState.BLOCKED if blocked

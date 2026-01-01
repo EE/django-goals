@@ -162,7 +162,7 @@ class HeavyLiftingThread(threading.Thread):
                 except Exception as e:
                     logger.exception(e)
                     # Treat exceptions as if we didn't do work
-                    did_work = False
+                    did_work = None
 
                 self.workers_state.report_work(self.thread_id, did_work)
 

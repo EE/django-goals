@@ -49,10 +49,13 @@ def ensure_sorted(goal):
         not is_goal_completed(merge_sort.subsort_a.goal) or
         not is_goal_completed(merge_sort.subsort_b.goal)
     ):
-        return RetryMeLater(precondition_goals=[
-            merge_sort.subsort_a.goal,
-            merge_sort.subsort_b.goal,
-        ], message='Waiting for subsorts to finish')
+        return RetryMeLater(
+            precondition_goals=[g for g in [
+                merge_sort.subsort_a.goal,
+                merge_sort.subsort_b.goal,
+            ] if g is not None],
+            message='Waiting for subsorts to finish',
+        )
 
     # merge sorted subsorts
     a = merge_sort.subsort_a.sorted_numbers

@@ -113,7 +113,7 @@ def test_handle_waiting_for_worker_retry(goal):
 }], indirect=True)
 @pytest.mark.parametrize('already_present', [True, False])
 def test_handle_waiting_for_worker_retry_precond_already_present(goal, already_present):
-    precondition_goal = GoalFactory(state=GoalState.ACHIEVED)
+    precondition_goal = GoalFactory.create(state=GoalState.ACHIEVED)
     if already_present:
         goal.precondition_goals.add(precondition_goal)
     with mock.patch('django_goals.models.follow_instructions') as follow_instructions:

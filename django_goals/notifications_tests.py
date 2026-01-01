@@ -1,11 +1,11 @@
 import pytest
 
 from .blocking_worker import listen_goal_waiting_for_worker
-from .models import schedule
+from .models import AllDone, Goal, schedule
 
 
-def noop():
-    pass
+def noop(goal: Goal) -> AllDone:
+    return AllDone()
 
 
 @pytest.mark.django_db(transaction=True)

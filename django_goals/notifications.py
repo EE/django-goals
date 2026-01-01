@@ -1,19 +1,22 @@
+import uuid
+
 from django.db import connection, connections
+from django.db.backends.utils import CursorWrapper
 
 
-def notify_goal_waiting_for_worker(cursor, goal_id):
+def notify_goal_waiting_for_worker(cursor: CursorWrapper, goal_id: uuid.UUID) -> None:
     """
     Notify that the goal is waiting for a worker to pick it up.
     """
     cursor.execute("NOTIFY goal_waiting_for_worker, %s", [str(goal_id)])
 
 
-def listen_goal_waiting_for_worker():
+def listen_goal_waiting_for_worker() -> None:
     with connection.cursor() as cursor:
         cursor.execute("LISTEN goal_waiting_for_worker")
 
 
-def notify_goal_progress(goal_id, state):
+def notify_goal_progress(goal_id: uuid.UUID, state: str) -> None:
     """
     Notify that the goal has changed its state.
     """
@@ -24,7 +27,7 @@ def notify_goal_progress(goal_id, state):
         ])
 
 
-def listen_goal_progress(goal_id):
+def listen_goal_progress(goal_id: uuid.UUID) -> None:
     """
     Listen for goal progress notifications.
     """
@@ -33,14 +36,14 @@ def listen_goal_progress(goal_id):
         cursor.execute(f'LISTEN {channel}')
 
 
-def get_goal_progress_channel(goal_id):
+def get_goal_progress_channel(goal_id: uuid.UUID) -> str:
     """
     Get the channel name for goal progress notifications.
     """
     return f'goal_progress_{goal_id.hex}'
 
 
-def wait():
+def wait() -> str:
     """
     Wait for a goal progress notification.
     """
