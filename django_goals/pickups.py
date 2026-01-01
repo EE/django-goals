@@ -1,3 +1,4 @@
+import datetime
 import logging
 import queue
 import threading
@@ -6,6 +7,10 @@ import uuid
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+
+import django_goals
+
+from .types import PursueGoalT
 
 
 logger = logging.getLogger(__name__)
@@ -25,11 +30,11 @@ class GoalPickup(models.Model):
 
 
 class PickupMonitorThread(threading.Thread):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self) -> None:
+        super().__init__()
         self.event_queue: queue.Queue[tuple[str, uuid.UUID]] = queue.Queue()
 
-    def run(self):
+    def run(self) -> None:
         logger.info('Pickup monitor thread started')
 
         while True:
@@ -47,21 +52,26 @@ class PickupMonitorThread(threading.Thread):
 
         logger.info('Pickup monitor thread exiting')
 
-    def pickup(self, goal_id):
+    def pickup(self, goal_id: uuid.UUID) -> None:
         self.event_queue.put(('pickup', goal_id))
 
-    def release(self, goal_id):
+    def release(self, goal_id: uuid.UUID) -> None:
         self.event_queue.put(('release', goal_id))
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         self.event_queue.shutdown()
 
 
 class Middleware:
-    def __init__(self, wrapped):
+    def __init__(self, wrapped: PursueGoalT) -> None:
         self.wrapped = wrapped
 
-    def __call__(self, goal, now, pickup_monitor=None):
+    def __call__(
+        self,
+        goal: 'django_goals.models.Goal',
+        now: datetime.datetime,
+        pickup_monitor: PickupMonitorThread | None = None,
+    ) -> 'django_goals.models.GoalProgress | None':
         from .models import GoalState, _mark_as_failed
 
         # is it a killer task?

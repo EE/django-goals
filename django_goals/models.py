@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 import uuid
-from typing import Callable, Iterable, Optional, Protocol
+from typing import Callable, Iterable, Optional
 
 from django.conf import settings
 from django.db import connections, models, transaction
@@ -18,6 +18,7 @@ from .notifications import (
     listen_goal_progress, notify_goal_progress, notify_goal_waiting_for_worker,
 )
 from .pickups import GoalPickup
+from .types import PursueGoalT, ScheduleGoalT
 
 
 __all__ = (
@@ -403,20 +404,16 @@ def handle_waiting_for_worker(
     return _pursue_goal(goal, now, pickup_monitor=pickup_monitor)
 
 
-class PursueGoalT(Protocol):
-    def __call__(
-        self,
-        goal: Goal, now: datetime.datetime,
-        pickup_monitor: object | None = None
-    ) -> GoalProgress:
-        ...
-
-
 class FsckMiddleware:
     def __init__(self, wrapped: PursueGoalT):
         self.wrapped = wrapped
 
-    def __call__(self, goal: Goal, now: datetime.datetime, pickup_monitor: object | None = None) -> GoalProgress:
+    def __call__(
+        self,
+        goal: Goal,
+        now: datetime.datetime,
+        pickup_monitor: object | None = None,
+    ) -> GoalProgress | None:
         if now < goal.precondition_date:
             logger.warning('Precondition date bug in goal %s. Precondition date is in the future', goal.id)
         if (
@@ -688,11 +685,6 @@ def schedule(
     )
 
     return _schedule(goal, precondition_goals, listen=listen)
-
-
-class ScheduleGoalT(Protocol):
-    def __call__(self, goal: Goal, precondition_goals: Iterable[Goal] | None, listen: bool) -> Goal:
-        ...
 
 
 def _schedule_core(goal: Goal, precondition_goals: Iterable[Goal] | None, listen: bool) -> Goal:
