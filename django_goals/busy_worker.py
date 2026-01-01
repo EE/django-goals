@@ -1,5 +1,7 @@
+import datetime
 import logging
 import time
+from threading import Event
 
 from django.utils import timezone
 
@@ -13,7 +15,11 @@ from django_goals.models import (
 logger = logging.getLogger(__name__)
 
 
-def worker(stop_event=None, max_progress_count=float('inf'), once=False):
+def worker(
+    stop_event: Event | None = None,
+    max_progress_count: float = float('inf'),
+    once: bool = False,
+) -> None:
     """
     Worker is a busy-wait function that will keep checking for goals to pursue.
     It will keep running until stop_event is set.
@@ -51,7 +57,11 @@ def worker(stop_event=None, max_progress_count=float('inf'), once=False):
     logger.info('Busy-wait worker exiting')
 
 
-def worker_turn(now=None, stop_event=None, max_progress_count=float('inf')):
+def worker_turn(
+    now: datetime.datetime | None = None,
+    stop_event: Event | None = None,
+    max_progress_count: float = float('inf'),
+) -> tuple[int, int]:
     """
     Worker turn is a single iteration of the worker.
     It will try to transition as many goals as possible.

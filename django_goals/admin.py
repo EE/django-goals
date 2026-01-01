@@ -1,7 +1,9 @@
+import datetime
 import json
 
 from django.contrib import admin, messages
 from django.db import models
+from django.http import HttpRequest
 from django.urls import reverse
 from django.urls.exceptions import NoReverseMatch
 from django.utils.html import format_html, format_html_join
@@ -26,17 +28,17 @@ class GoalDependencyInline(admin.TabularInline):  # type: ignore
     )
     readonly_fields = fields
 
-    def has_add_permission(self, request, obj):  # type: ignore
+    def has_add_permission(self, request: HttpRequest, obj: GoalDependency) -> bool:  # type: ignore
         return False
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: GoalDependency | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: HttpRequest, obj: GoalDependency | None = None) -> bool:
         return False
 
     @admin.display(description='Precondition Goal ID')
-    def precondition_goal__id(self, obj):
+    def precondition_goal__id(self, obj: GoalDependency) -> str:
         return format_html(
             '<a href="{}">{}</a>',
             reverse(
@@ -47,15 +49,15 @@ class GoalDependencyInline(admin.TabularInline):  # type: ignore
         )
 
     @admin.display(description='Precondition Goal State')
-    def precondition_goal__state(self, obj):
+    def precondition_goal__state(self, obj: GoalDependency) -> str:
         return obj.precondition_goal.get_state_display()
 
     @admin.display(description='Precondition Goal Handler')
-    def precondition_goal__handler(self, obj):
+    def precondition_goal__handler(self, obj: GoalDependency) -> str:
         return obj.precondition_goal.handler
 
     @admin.display(description='Precondition Goal Created At')
-    def precondition_goal__created_at(self, obj):
+    def precondition_goal__created_at(self, obj: GoalDependency) -> datetime.datetime:
         return obj.precondition_goal.created_at
 
 
@@ -63,13 +65,13 @@ class GoalProgressInline(admin.TabularInline):  # type: ignore
     model = GoalProgress
     extra = 0
 
-    def has_add_permission(self, request, obj):  # type: ignore
+    def has_add_permission(self, request: HttpRequest, obj: GoalProgress) -> bool:  # type: ignore
         return False
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: GoalProgress | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: HttpRequest, obj: GoalProgress | None = None) -> bool:
         return False
 
 
@@ -77,13 +79,13 @@ class GoalPickupInline(admin.TabularInline):  # type: ignore
     model = GoalPickup
     extra = 0
 
-    def has_add_permission(self, request, obj):  # type: ignore
+    def has_add_permission(self, request: HttpRequest, obj: GoalPickup) -> bool:  # type: ignore
         return False
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: GoalPickup | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: HttpRequest, obj: GoalPickup | None = None) -> bool:
         return False
 
 
@@ -124,35 +126,35 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):  # type: ignore
         'unblock_retry',
     )
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: Goal | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: HttpRequest, obj: Goal | None = None) -> bool:
         return False
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> 'models.QuerySet[Goal]':
         return super().get_queryset(request).annotate(
             progress_count=models.Count('progress'),
         )
 
     @admin.display
-    def progress_count(self, obj):
-        return obj.progress_count
+    def progress_count(self, obj: Goal) -> int:
+        return obj.progress_count  # type: ignore
 
     @admin.display(description='Instructions')
-    def instructions_pre(self, obj):
+    def instructions_pre(self, obj: Goal) -> str:
         return format_html(
             '<pre style="white-space: pre-wrap;">{}</pre>',
             json.dumps(obj.instructions, indent=2),
         )
 
     @admin.display(description='Related Objects')
-    def related_objects(self, obj):
+    def related_objects(self, obj: Goal) -> str:
         rows_html = []
-        for field in obj._meta._relation_tree:
+        for field in obj._meta._relation_tree:  # type: ignore
             if field.model._meta.app_label == 'django_goals':
                 continue
             related_objects = field.model.objects.filter(**{field.name: obj})
@@ -204,8 +206,8 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):  # type: ignore
             ((row,) for row in rows_html),
         )
 
-    @action(label=_('Unblock / retry'), methods=['POST'], button_type='form')
-    def unblock_retry(self, request, obj):
+    @action(label=_('Unblock / retry'), methods=['POST'], button_type='form')  # type: ignore
+    def unblock_retry(self, request: HttpRequest, obj: Goal) -> None:
         try:
             unblock_retry_goal(obj.id)
         except ValueError as e:
@@ -213,8 +215,8 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):  # type: ignore
         else:
             self.message_user(request, _('Goal was unblocked'))
 
-    @action(label=_('Block'), methods=['POST'], button_type='form')
-    def block(self, request, obj):
+    @action(label=_('Block'), methods=['POST'], button_type='form')  # type: ignore
+    def block(self, request: HttpRequest, obj: Goal) -> None:
         try:
             block_goal(obj.id)
         except ValueError as e:

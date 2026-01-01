@@ -9,7 +9,7 @@ from .notifications import listen_goal_waiting_for_worker
 logger = logging.getLogger(__name__)
 
 
-def worker():
+def worker() -> None:
     '''
     This worker is a blocking worker that listens for notifications on the
     goal_waiting_for_worker channel. It will then handle the waiting for worker

@@ -1,3 +1,5 @@
+from typing import Iterable
+
 import factory
 
 from .models import Goal, GoalProgress
@@ -8,8 +10,8 @@ class GoalFactory(factory.django.DjangoModelFactory[Goal]):
         model = Goal
         skip_postgeneration_save = True
 
-    @factory.post_generation
-    def precondition_goals(self, create, extracted, **kwargs):
+    @factory.post_generation  # type: ignore
+    def precondition_goals(self, create: bool, extracted: Iterable[Goal]) -> None:
         if not create:
             return
 

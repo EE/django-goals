@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import logging
 import re
 import threading
 import time
+from argparse import ArgumentParser
 from contextlib import contextmanager
 from datetime import timedelta
+from typing import Iterator
 
 from django.core.management.base import BaseCommand
 
@@ -23,7 +27,7 @@ logger = logging.getLogger(__name__)
 class Command(BaseCommand):
     help = 'Run the worker'
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument(
             '--threads',
             action='append',  # This allows multiple instances of --threads
@@ -35,7 +39,7 @@ class Command(BaseCommand):
             help='Exit when no work is available',
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:
         # Parse the threads parameter
         threads_specs = options.get('threads') or ['1']  # Default to 1 worker if not specified
         worker_specs = []
@@ -67,7 +71,7 @@ class Command(BaseCommand):
             )
 
 
-def parse_duration(duration_str):
+def parse_duration(duration_str: str) -> timedelta | None:
     """
     Parse duration strings like "30m", "2h", "1d" into timedelta objects.
     Returns None if the string is "none", empty, or None.
@@ -92,7 +96,11 @@ def parse_duration(duration_str):
     return timedelta(**kwargs)
 
 
-def threaded_worker(worker_specs=None, stop_event=None, once=False):
+def threaded_worker(
+    worker_specs: list[tuple[int, timedelta | None]],
+    stop_event: threading.Event | None = None,
+    once: bool = False,
+) -> None:
     if stop_event is None:
         stop_event = threading.Event()
 
@@ -138,8 +146,13 @@ def threaded_worker(worker_specs=None, stop_event=None, once=False):
 
 class HeavyLiftingThread(threading.Thread):
     def __init__(
-        self, stop_event, once, workers_state, thread_id, deadline_horizon=None,
-        pickup_monitor=None,
+        self,
+        stop_event: threading.Event,
+        once: bool,
+        workers_state: WorkersState,
+        thread_id: str,
+        deadline_horizon: timedelta | None = None,
+        pickup_monitor: PickupMonitorThread | None = None,
     ):
         super().__init__()
         self.stop_event = stop_event
@@ -149,21 +162,22 @@ class HeavyLiftingThread(threading.Thread):
         self.deadline_horizon = deadline_horizon
         self.pickup_monitor = pickup_monitor
 
-    def run(self):
+    def run(self) -> None:
         logger.info('Busy-wait worker started, deadline_horizon: %s', self.deadline_horizon)
 
         while not self.stop_event.is_set():
             with self.workers_state.work_session(self.thread_id):
                 try:
-                    did_work = handle_waiting_for_worker(
+                    progress = handle_waiting_for_worker(
                         deadline_horizon=self.deadline_horizon,
                         pickup_monitor=self.pickup_monitor,
                     )
                 except Exception as e:
                     logger.exception(e)
                     # Treat exceptions as if we didn't do work
-                    did_work = None
+                    progress = None
 
+                did_work = progress is not None
                 self.workers_state.report_work(self.thread_id, did_work)
 
             if self.workers_state.all_idle and self.once:
@@ -178,14 +192,20 @@ class HeavyLiftingThread(threading.Thread):
 
 
 class TransitionsThread(threading.Thread):
-    def __init__(self, stop_event, once, workers_state, thread_id):
+    def __init__(
+        self,
+        stop_event: threading.Event,
+        once: bool,
+        workers_state: WorkersState,
+        thread_id: str,
+    ):
         super().__init__()
         self.stop_event = stop_event
         self.once = once
         self.workers_state = workers_state
         self.thread_id = thread_id
 
-    def run(self):
+    def run(self) -> None:
         logger.info('Transitions worker started')
 
         while not self.stop_event.is_set():
@@ -203,7 +223,7 @@ class TransitionsThread(threading.Thread):
 
         logger.info('Transitions worker exiting')
 
-    def _run_handlers(self):
+    def _run_handlers(self) -> bool:
         """Run all handlers and return True if any work was done"""
         try:
             results = [
@@ -220,14 +240,14 @@ class TransitionsThread(threading.Thread):
 
 
 class WorkersState:
-    def __init__(self, thread_count):
+    def __init__(self, thread_count: int):
         self.lock = threading.Lock()
-        self.idle_threads = set()  # Threads that are permanently idle (no more work)
-        self.active_threads = set()  # Threads currently registered as active
+        self.idle_threads: set[str] = set()  # Threads that are permanently idle (no more work)
+        self.active_threads: set[str] = set()  # Threads currently registered as active
         self.total_threads = thread_count
 
     @contextmanager
-    def work_session(self, thread_id):
+    def work_session(self, thread_id: str) -> Iterator[None]:
         """
         Context manager to track a thread's work session.
         A thread enters a work session to check for and perform work.
@@ -240,7 +260,7 @@ class WorkersState:
         with self.lock:
             assert thread_id not in self.active_threads, "You must call report_work before exiting the session"
 
-    def report_work(self, thread_id, did_work):
+    def report_work(self, thread_id: str, did_work: bool) -> None:
         with self.lock:
             assert thread_id in self.active_threads, "Thread must be in work session to report work"
             self.active_threads.discard(thread_id)
@@ -254,6 +274,6 @@ class WorkersState:
                 self.idle_threads.add(thread_id)
 
     @property
-    def all_idle(self):
+    def all_idle(self) -> bool:
         with self.lock:
             return len(self.idle_threads) == self.total_threads

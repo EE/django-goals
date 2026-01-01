@@ -2,18 +2,18 @@ import time
 
 from django.core.management.base import BaseCommand
 
-from django_goals.models import AllDone, schedule
+from django_goals.models import AllDone, Goal, schedule
 from django_goals.notifications import wait
 
 
-def pursue(goal):
+def pursue(goal: Goal) -> AllDone:
     return AllDone()
 
 
 class Command(BaseCommand):
     help = 'Set an example goal'
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:
         start_time = time.monotonic()
         goal = schedule(pursue, listen=True)
         print('Goal scheduled', goal.id)

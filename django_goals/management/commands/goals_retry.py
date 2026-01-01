@@ -1,4 +1,5 @@
 import uuid
+from argparse import ArgumentParser
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -12,20 +13,20 @@ class Command(BaseCommand):
     """
     help = 'Retry all goals that were previously marked as GIVEN_UP'
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument(
             '--limit',
             type=int,
             help='Maximum number of goals to retry (default: no limit)'
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:
         limit = options.get('limit')
         count = retry_all_given_up(self, limit)
         self.stdout.write(self.style.SUCCESS(f'Retried {count} goals'))
 
 
-def retry_all_given_up(command, limit=None):
+def retry_all_given_up(command: BaseCommand, limit: int | None = None) -> int:
     """Retry all given up goals, optionally limited to a maximum count."""
     goal_id = uuid.UUID(int=0)
     count = 0
@@ -35,21 +36,21 @@ def retry_all_given_up(command, limit=None):
             command.stdout.write(f'Reached limit of {limit} goals')
             break
 
-        goal_id = retry_next_given_up_goal(goal_id, command)
+        goal_id_or_none = retry_next_given_up_goal(goal_id, command)
 
-        if not goal_id:
+        if not goal_id_or_none:
             break
 
         count += 1
 
         # Move to the next goal ID
-        goal_id = uuid.UUID(int=goal_id.int + 1)
+        goal_id = uuid.UUID(int=goal_id_or_none.int + 1)
 
     return count
 
 
 @transaction.atomic
-def retry_next_given_up_goal(goal_id, command):
+def retry_next_given_up_goal(goal_id: uuid.UUID, command: BaseCommand) -> uuid.UUID | None:
     """
     Find and retry the next given up goal with ID >= goal_id.
     Returns the ID of the processed goal, or None if no eligible goal was found.
