@@ -13,7 +13,7 @@ def pursue(goal: Goal) -> AllDone:
 class Command(BaseCommand):
     help = 'Set an example goal'
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args, **options) -> None:  # type: ignore
         start_time = time.monotonic()
         goal = schedule(pursue, listen=True)
         print('Goal scheduled', goal.id)

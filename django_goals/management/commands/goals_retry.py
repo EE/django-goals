@@ -1,5 +1,6 @@
 import uuid
 from argparse import ArgumentParser
+from typing import Any, cast
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -20,8 +21,8 @@ class Command(BaseCommand):
             help='Maximum number of goals to retry (default: no limit)'
         )
 
-    def handle(self, *args, **options) -> None:
-        limit = options.get('limit')
+    def handle(self, *args: Any, **options: Any) -> None:
+        limit = cast(int | None, options.get('limit'))
         count = retry_all_given_up(self, limit)
         self.stdout.write(self.style.SUCCESS(f'Retried {count} goals'))
 

@@ -1,7 +1,8 @@
 import pytest
+from django.test import Client
 from django.urls import reverse
 
-from django_goals.models import GoalState
+from django_goals.models import Goal, GoalState
 
 
 @pytest.mark.django_db
@@ -31,7 +32,7 @@ from django_goals.models import GoalState
     ],
     indirect=['goal'],
 )
-def test_state_actions(admin_client, goal, action, expected_state):
+def test_state_actions(admin_client: Client, goal: Goal, action: str, expected_state: GoalState) -> None:
     response = admin_client.post(reverse(
         'admin:django_goals_goal_actions',
         args=[goal.pk, action],

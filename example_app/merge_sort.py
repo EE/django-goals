@@ -1,8 +1,10 @@
 import random
+from typing import Any
 
 from django.contrib import admin
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
+from django.http import HttpRequest
 
 from django_goals.models import AllDone, Goal, RetryMeLater, schedule
 from django_goals.utils import is_goal_completed
@@ -16,7 +18,7 @@ class MergeSort(models.Model):
     goal = models.ForeignKey(Goal, null=True, blank=True, on_delete=models.SET_NULL)
 
 
-def ensure_sorted(goal):
+def ensure_sorted(goal: Goal) -> AllDone | RetryMeLater:
     merge_sort = MergeSort.objects.get(goal=goal)
 
     # already done
@@ -88,20 +90,20 @@ class MergeSortAdmin(admin.ModelAdmin):  # type: ignore
         'sorted_numbers',
     )
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: MergeSort | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: HttpRequest, obj: MergeSort | None = None) -> bool:
         return False
 
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request: HttpRequest, obj: MergeSort, form: Any, change: bool) -> None:
         super().save_model(request, obj, form, change)
         if obj.goal is None:
             with transaction.atomic():
                 obj.goal = schedule(ensure_sorted)
                 obj.save(update_fields=['goal'])
 
-    def get_changeform_initial_data(self, request):
+    def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, str | list[str]]:
         return {
-            'numbers': [random.randint(0, 100) for _ in range(10)],
+            'numbers': [str(random.randint(0, 100)) for _ in range(10)],
         }

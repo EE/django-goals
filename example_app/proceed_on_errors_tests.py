@@ -9,7 +9,7 @@ from .proceed_on_errors import ErrorsBatch, do_batch
 
 @pytest.mark.django_db
 @override_settings(GOALS_GIVE_UP_AT=1)
-def test_proceed_on_error():
+def test_proceed_on_error() -> None:
     batch = ErrorsBatch.objects.create(
         desired=20,
         processed_goal=schedule(

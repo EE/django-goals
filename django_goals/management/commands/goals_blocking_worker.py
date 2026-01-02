@@ -6,5 +6,5 @@ from django_goals.blocking_worker import worker
 class Command(BaseCommand):
     help = 'Run the blocking worker'
 
-    def handle(self, *args, **options):
+    def handle(self, *arg, **options) -> None:  # type: ignore
         worker()

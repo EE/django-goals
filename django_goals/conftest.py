@@ -1,26 +1,28 @@
+from typing import Any, Callable
 from unittest import mock
 
 import pytest
 from django.db import connection
 
 from .factories import GoalFactory
+from .models import Goal
 
 
 @pytest.fixture(name='goal')
-def goal_fixture(request):
-    return GoalFactory(
+def goal_fixture(request: pytest.FixtureRequest) -> Goal:
+    return GoalFactory.create(
         **getattr(request, 'param', {}),
     )
 
 
 @pytest.fixture(name='get_notifications')
-def get_notifications_fixture():
+def get_notifications_fixture() -> Callable[[], list[Any]]:
     handler = mock.Mock()
     connection.ensure_connection()
     pg_conn = connection.connection
     pg_conn.add_notify_handler(handler)
 
-    def _get_notifications():
+    def _get_notifications() -> list[Any]:
         return [
             call[0][0]
             for call in handler.call_args_list

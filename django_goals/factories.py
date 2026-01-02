@@ -23,5 +23,5 @@ class GoalProgressFactory(factory.django.DjangoModelFactory[GoalProgress]):
     class Meta:
         model = GoalProgress
 
-    goal = factory.SubFactory(GoalFactory)
+    goal = factory.SubFactory(GoalFactory)  # type: ignore
     success = True

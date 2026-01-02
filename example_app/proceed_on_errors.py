@@ -2,9 +2,11 @@ import random
 
 from django.contrib import admin
 from django.db import models
+from django.http import HttpRequest
 
 from django_goals.models import (
-    AllDone, GoalState, PreconditionFailureBehavior, RetryMeLater, schedule,
+    AllDone, Goal, GoalState, PreconditionFailureBehavior, RetryMeLater,
+    schedule,
 )
 from django_goals.utils import GoalRelatedMixin
 
@@ -21,13 +23,13 @@ class ErrorsBatchAdmin(admin.ModelAdmin):  # type: ignore
     list_display = ('id', 'desired', 'spawned', 'succeeded', 'failed')
     readonly_fields = ('id', 'spawned', 'succeeded', 'failed', 'processed_goal')
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: ErrorsBatch | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: HttpRequest, obj: ErrorsBatch | None = None) -> bool:
         return False
 
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request: HttpRequest, obj: ErrorsBatch, form: object, change: bool) -> None:
         obj.processed_goal = schedule(
             do_batch,
             precondition_failure_behavior=PreconditionFailureBehavior.PROCEED,
@@ -35,7 +37,7 @@ class ErrorsBatchAdmin(admin.ModelAdmin):  # type: ignore
         super().save_model(request, obj, form, change)
 
 
-def do_batch(goal):
+def do_batch(goal: Goal) -> AllDone | RetryMeLater:
     batch = ErrorsBatch.objects.get(processed_goal=goal)
 
     missing = batch.desired - batch.spawned
@@ -60,7 +62,7 @@ def do_batch(goal):
     return AllDone()
 
 
-def fail_sometimes(goal):
+def fail_sometimes(goal: Goal) -> AllDone:
     if random.random() > 0.5:
         raise Exception('Failed')
     return AllDone()

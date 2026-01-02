@@ -1,3 +1,5 @@
+from typing import Any, Callable
+
 import pytest
 
 from .blocking_worker import listen_goal_waiting_for_worker
@@ -9,7 +11,7 @@ def noop(goal: Goal) -> AllDone:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_schedule_notifies(get_notifications):
+def test_schedule_notifies(get_notifications: Callable[[], list[Any]]) -> None:
     listen_goal_waiting_for_worker()
 
     goal = schedule(noop)

@@ -7,7 +7,7 @@ import time
 from argparse import ArgumentParser
 from contextlib import contextmanager
 from datetime import timedelta
-from typing import Iterator
+from typing import Iterator, cast
 
 from django.core.management.base import BaseCommand
 
@@ -39,16 +39,16 @@ class Command(BaseCommand):
             help='Exit when no work is available',
         )
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args: object, **options: object) -> None:
         # Parse the threads parameter
-        threads_specs = options.get('threads') or ['1']  # Default to 1 worker if not specified
+        threads_specs = cast(list[str], options.get('threads') or ['1'])  # Default to 1 worker if not specified
         worker_specs = []
         for spec in threads_specs:
             try:
                 if ':' in spec:
                     # Format is N:HORIZON
-                    count, horizon_str = spec.split(':', 1)
-                    count = int(count)
+                    count_str, horizon_str = spec.split(':', 1)
+                    count = int(count_str)
                     horizon = parse_duration(horizon_str)
                 else:
                     # Format is just N
@@ -67,7 +67,7 @@ class Command(BaseCommand):
             threaded_worker(
                 worker_specs=worker_specs,
                 stop_event=stop_event,
-                once=options['once'],
+                once=cast(bool, options['once']),
             )
 
 

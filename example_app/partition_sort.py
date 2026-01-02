@@ -1,8 +1,10 @@
 import random
+from typing import Any
 
 from django.contrib import admin
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
+from django.http import HttpRequest
 
 from django_goals.models import (
     AllDone, Goal, PreconditionsMode, RetryMeLater, schedule,
@@ -26,7 +28,7 @@ class PartitionSort(models.Model):
     goal = models.ForeignKey(Goal, null=True, blank=True, on_delete=models.SET_NULL)
 
 
-def ensure_sorted(goal):
+def ensure_sorted(goal: Goal) -> AllDone | RetryMeLater:
     sort = PartitionSort.objects.get(goal=goal)
 
     # base case
@@ -109,19 +111,19 @@ class PartitionSortAdmin(admin.ModelAdmin):  # type: ignore
         'high_done',
     )
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: PartitionSort | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: HttpRequest, obj: PartitionSort | None = None) -> bool:
         return False
 
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request: HttpRequest, obj: PartitionSort, form: Any, change: bool) -> None:
         super().save_model(request, obj, form, change)
         with transaction.atomic():
             obj.goal = schedule(ensure_sorted, preconditions_mode=PreconditionsMode.ANY)
             obj.save(update_fields=['goal'])
 
-    def get_changeform_initial_data(self, request):
+    def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, str | list[str]]:
         return {
-            'numbers': [random.randint(0, 100) for _ in range(10)],
+            'numbers': [str(random.randint(0, 100)) for _ in range(10)],
         }

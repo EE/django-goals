@@ -18,7 +18,7 @@ from .factories import GoalFactory, GoalProgressFactory
 
 
 @pytest.mark.django_db
-def test_worker_turn_noop():
+def test_worker_turn_noop() -> None:
     now = timezone.now()
     transitions_done = worker_turn(now)
     assert transitions_done == (0, 0)
@@ -33,7 +33,7 @@ def test_worker_turn_noop():
     ],
 )
 @override_settings(GOALS_GIVE_UP_AT=1)
-def test_proceed_at_failure_mode_do_work(failure_mode, expected_state, progress_count):
+def test_proceed_at_failure_mode_do_work(failure_mode: PreconditionFailureBehavior, expected_state: GoalState, progress_count: int) -> None:
     precond = schedule(fail)
     goal = schedule(
         noop,
@@ -48,20 +48,21 @@ def test_proceed_at_failure_mode_do_work(failure_mode, expected_state, progress_
     assert goal.progress.count() == progress_count
 
 
-def noop(goal):  # pylint: disable=unused-argument
+def noop(goal: Goal) -> AllDone:  # pylint: disable=unused-argument
     return AllDone()
 
 
-def fail(goal):  # pylint: disable=unused-argument
+def fail(goal: Goal) -> AllDone:  # pylint: disable=unused-argument
     raise Exception('I failed!')
 
 
-def trigger_database_error(goal):
+def trigger_database_error(goal: Goal) -> AllDone:
     Goal.objects.create(id=goal.id)  # violates unique constraint
+    return AllDone()  # never reached due to IntegrityError
 
 
 @pytest.mark.django_db(transaction=True)
-def test_transaction_error_in_goal():
+def test_transaction_error_in_goal() -> None:
     goal = schedule(trigger_database_error)
     trasitions_count, progress_count = worker_turn(timezone.now())
     assert trasitions_count == 1
@@ -73,7 +74,7 @@ def test_transaction_error_in_goal():
     assert thread_local.current_goal is None
 
 
-def use_lots_of_memory(goal):  # pylint: disable=unused-argument
+def use_lots_of_memory(goal: Goal) -> AllDone:  # pylint: disable=unused-argument
     _unused = b'x' * 1024 * 1024 * 128  # 128 MiB  # noqa
     return AllDone()
 
@@ -88,8 +89,8 @@ def use_lots_of_memory(goal):  # pylint: disable=unused-argument
         (256, True),
     ],
 )
-def test_memory_limit(settings, memory_limit, expected_success):
-    settings.GOALS_MEMORY_LIMIT_MIB = memory_limit
+def test_memory_limit(settings: object, memory_limit: int | None, expected_success: bool) -> None:
+    settings.GOALS_MEMORY_LIMIT_MIB = memory_limit  # type: ignore[attr-defined]
     # simulate we have some memory allocated outside of the goal handler
     _unused = b'x' * 1024 * 1024 * 2  # 2 MiB  # noqa
     goal = schedule(use_lots_of_memory)
@@ -101,7 +102,7 @@ def test_memory_limit(settings, memory_limit, expected_success):
     assert progress.success == expected_success
 
 
-def take_too_long(goal):  # pylint: disable=unused-argument
+def take_too_long(goal: Goal) -> AllDone:  # pylint: disable=unused-argument
     time.sleep(2)
     return AllDone()
 
@@ -115,8 +116,8 @@ def take_too_long(goal):  # pylint: disable=unused-argument
         (3, True),
     ],
 )
-def test_time_limit(settings, time_limit, expected_success):
-    settings.GOALS_TIME_LIMIT_SECONDS = time_limit
+def test_time_limit(settings: object, time_limit: int | None, expected_success: bool) -> None:
+    settings.GOALS_TIME_LIMIT_SECONDS = time_limit  # type: ignore[attr-defined]
     goal = schedule(take_too_long)
     worker_turn(timezone.now())
     goal.refresh_from_db()
@@ -136,13 +137,13 @@ def test_time_limit(settings, time_limit, expected_success):
         (31, GoalState.GIVEN_UP, False),
     ],
 )
-def test_old_achieved_goal_is_deleted(days_ago, state, expect_deleted):
+def test_old_achieved_goal_is_deleted(days_ago: int, state: GoalState, expect_deleted: bool) -> None:
     now = timezone.now()
     goal = GoalFactory.create(
         state=state,
         created_at=now - datetime.timedelta(days=days_ago),
     )
-    GoalProgressFactory(goal=goal)
+    GoalProgressFactory.create(goal=goal)
     dependent_goal = GoalFactory.create(precondition_goals=[goal])
 
     worker_turn(now)
@@ -156,7 +157,7 @@ def test_old_achieved_goal_is_deleted(days_ago, state, expect_deleted):
 
 
 @pytest.mark.django_db
-def test_protected_old_achieved_goal():
+def test_protected_old_achieved_goal() -> None:
     now = timezone.now()
     goal = GoalFactory.create(
         state=GoalState.ACHIEVED,
@@ -176,13 +177,13 @@ def test_protected_old_achieved_goal():
     assert 'protected' in str(warning.call_args[0][1])
 
 
-def schedule_another(goal):
+def schedule_another(goal: Goal) -> AllDone:
     schedule(schedule_another, blocked=True)
     return AllDone()
 
 
 @pytest.mark.django_db
-def test_deadline_is_inherited():
+def test_deadline_is_inherited() -> None:
     now = timezone.now()
     goal = schedule(schedule_another, deadline=now + datetime.timedelta(days=1))
     worker_turn(now)

@@ -1,6 +1,7 @@
 import os
 import subprocess
 from datetime import timedelta
+from typing import NoReturn
 from urllib.parse import urlparse, urlunparse
 
 import pytest
@@ -8,16 +9,16 @@ from django.core.management import call_command
 from django.db import connection
 from django.utils.timezone import now
 
-from django_goals.models import AllDone, GoalState, schedule
+from django_goals.models import AllDone, Goal, GoalState, schedule
 from django_goals.pickups import GoalPickup
 
 
-def achieve(goal):
+def achieve(goal: Goal) -> AllDone:
     return AllDone()
 
 
 @pytest.mark.django_db(transaction=True)
-def test_achieving_goals():
+def test_achieving_goals() -> None:
     goal = schedule(achieve)
     call_command('goals_threaded_worker', threads=['2'], once=True)
     goal.refresh_from_db()
@@ -34,7 +35,7 @@ def test_achieving_goals():
     ],
 )
 @pytest.mark.django_db(transaction=True)
-def test_deadline_horizon(threads_spec, expected_goal_state):
+def test_deadline_horizon(threads_spec: list[str], expected_goal_state: GoalState) -> None:
     """ Worker should pick up goals with deadline within the deadline horizon """
     goal = schedule(achieve, deadline=now() + timedelta(days=1))
     call_command('goals_threaded_worker', threads=threads_spec, once=True)
@@ -44,7 +45,7 @@ def test_deadline_horizon(threads_spec, expected_goal_state):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize('should_commit', [True, False])
-def test_exit_goal(pytestconfig, should_commit):
+def test_exit_goal(pytestconfig: object, should_commit: bool) -> None:
     """We test (in a separate process) a goal that exits and does not commit."""
     goal = schedule(achieve if should_commit else exit_goal)
     subprocess.run(
@@ -53,17 +54,17 @@ def test_exit_goal(pytestconfig, should_commit):
             **os.environ,
             'DATABASE_URL': get_current_database_url(),
         },
-        cwd=pytestconfig.rootdir,
+        cwd=getattr(pytestconfig, 'rootdir', None),
     )
     assert GoalPickup.objects.filter(goal=goal).exists() is not should_commit
 
 
-def exit_goal(goal):
+def exit_goal(goal: Goal) -> NoReturn:
     os._exit(0)  # Exit the process immediately
 
 
-def get_current_database_url():
-    current_database_url = os.environ.get('DATABASE_URL')
+def get_current_database_url() -> str:
+    current_database_url = os.environ.get('DATABASE_URL') or ''
     parsed = urlparse(current_database_url)
     parsed = parsed._replace(path=connection.settings_dict['NAME'])
-    return urlunparse(parsed)
+    return str(urlunparse(parsed))

@@ -1,4 +1,5 @@
 import random
+from typing import Callable
 
 import pytest
 
@@ -17,7 +18,7 @@ from .merge_sort import MergeSort, ensure_sorted
     worker,
     lambda **kwargs: threaded_worker(worker_specs=[(4, None)], **kwargs),
 ])
-def test_merge_sort(worker_function):
+def test_merge_sort(worker_function: Callable[..., object]) -> None:
     numbers = [random.randint(0, 100) for _ in range(10)]
     merge_sort = MergeSort.objects.create(
         numbers=numbers,

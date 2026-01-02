@@ -603,7 +603,12 @@ class RetryMeLater:
     """
     Like a process yielding in operating system.
     """
-    def __init__(self, precondition_date: datetime.datetime | None = None, precondition_goals: Iterable[Goal] = (), message: str = ''):
+    def __init__(
+        self,
+        precondition_date: datetime.datetime | None = None,
+        precondition_goals: Iterable[Goal] | None = (),
+        message: str = '',
+    ):
         self.precondition_date = precondition_date
         self.precondition_goals = precondition_goals
         self.message = message

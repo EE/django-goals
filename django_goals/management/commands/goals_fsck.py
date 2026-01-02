@@ -13,16 +13,16 @@ class Command(BaseCommand):
     """
     Check and fix the integrity of the goals system.
     """
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:  # type: ignore
         check_fix_all()
 
 
-def check_fix_all():
+def check_fix_all() -> None:
     goal_id = uuid.UUID(int=0)
     i = 0
     while True:
-        goal_id = check_fix_goal(goal_id)
-        if not goal_id:
+        goal_id_or_none = check_fix_goal(goal_id)
+        if not goal_id_or_none:
             break
 
         i += 1
@@ -30,11 +30,11 @@ def check_fix_all():
             print(i, goal_id)
             i = 0
 
-        goal_id = uuid.UUID(int=goal_id.int + 1)
+        goal_id = uuid.UUID(int=goal_id_or_none.int + 1)
 
 
 @transaction.atomic
-def check_fix_goal(goal_id):
+def check_fix_goal(goal_id: uuid.UUID) -> uuid.UUID | None:
     goal = Goal.objects.filter(id__gte=goal_id).order_by('id').select_for_update(
         no_key=True,
         skip_locked=True,

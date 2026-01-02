@@ -4,7 +4,7 @@ import pytest
 
 from .factories import GoalFactory
 from .models import (
-    GoalState, PreconditionFailureBehavior, PreconditionsMode,
+    AllDone, Goal, GoalState, PreconditionFailureBehavior, PreconditionsMode,
     handle_unblocked_goals, handle_waiting_for_worker, schedule,
     unblock_retry_goal,
 )
@@ -17,7 +17,7 @@ from .pickups import GoalPickup
     [{'state': GoalState.GIVEN_UP}],
     indirect=True,
 )
-def test_retry(goal):
+def test_retry(goal: Goal) -> None:
     unblock_retry_goal(goal.id)
     goal.refresh_from_db()
     assert goal.state == GoalState.WAITING_FOR_DATE
@@ -25,7 +25,7 @@ def test_retry(goal):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize('goal', [{'state': GoalState.GIVEN_UP}], indirect=True)
-def test_retry_dependent_on(goal):
+def test_retry_dependent_on(goal: Goal) -> None:
     next_goal = GoalFactory.create(
         state=GoalState.NOT_GOING_TO_HAPPEN_SOON,
         precondition_goals=[goal],
@@ -37,8 +37,8 @@ def test_retry_dependent_on(goal):
 
 
 @pytest.mark.django_db
-def test_handle_waiting_for_worker_killer_task(settings):
-    settings.GOALS_MAX_PICKUPS = 2
+def test_handle_waiting_for_worker_killer_task(settings: object) -> None:
+    settings.GOALS_MAX_PICKUPS = 2  # type: ignore[attr-defined]
     goal = GoalFactory.create(state=GoalState.WAITING_FOR_WORKER)
     for _ in range(2):
         GoalPickup.objects.create(goal=goal)
@@ -47,12 +47,12 @@ def test_handle_waiting_for_worker_killer_task(settings):
     assert goal.state == GoalState.IT_IS_A_KILLER_TASK
 
 
-def noop(goal):  # pylint: disable=unused-argument
-    pass
+def noop(goal: Goal) -> AllDone:  # pylint: disable=unused-argument
+    return AllDone()
 
 
 @pytest.mark.django_db
-def test_schedule_updates_deadline():
+def test_schedule_updates_deadline() -> None:
     now = datetime.datetime(2024, 11, 6, 11, 41, 0, tzinfo=datetime.timezone.utc)
     goal_a = GoalFactory.create(deadline=now)
     goal_b = GoalFactory.create(precondition_goals=[goal_a])
@@ -77,7 +77,7 @@ def test_schedule_updates_deadline():
     indirect=['goal'],
 )
 @pytest.mark.parametrize('mode', [PreconditionsMode.ALL, PreconditionsMode.ANY])
-def test_schedule_updates_waiting_for_count(goal, expected_waiting_for, expected_waiting_for_failed_count, mode):
+def test_schedule_updates_waiting_for_count(goal: Goal, expected_waiting_for: int, expected_waiting_for_failed_count: int, mode: PreconditionsMode) -> None:
     next_goal = schedule(noop, precondition_goals=[goal], preconditions_mode=mode)
     assert next_goal.waiting_for_count == expected_waiting_for
     assert next_goal.waiting_for_failed_count == expected_waiting_for_failed_count
@@ -92,7 +92,7 @@ def test_schedule_updates_waiting_for_count(goal, expected_waiting_for, expected
         PreconditionFailureBehavior.BLOCK,
     ],
 )
-def test_schedule_any_mode_caps_waiting_for(failure_mode):
+def test_schedule_any_mode_caps_waiting_for(failure_mode: PreconditionFailureBehavior) -> None:
     preconds = GoalFactory.create_batch(2, state=GoalState.WAITING_FOR_WORKER)
     next_goal = schedule(
         noop,
@@ -112,7 +112,7 @@ def test_schedule_any_mode_caps_waiting_for(failure_mode):
         (PreconditionFailureBehavior.BLOCK, 1),
     ],
 )
-def test_schedule_failed_precond(failure_mode, expected_waiting_for_count):
+def test_schedule_failed_precond(failure_mode: PreconditionFailureBehavior, expected_waiting_for_count: int) -> None:
     failed_goal = GoalFactory.create(
         state=GoalState.GIVEN_UP,
     )
@@ -129,7 +129,7 @@ def test_schedule_failed_precond(failure_mode, expected_waiting_for_count):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize('blocked', [True, False])
-def test_schedule_blocked(blocked):
+def test_schedule_blocked(blocked: bool) -> None:
     goal = GoalFactory.create(state=GoalState.WAITING_FOR_WORKER)
     next_goal = schedule(noop, precondition_goals=[goal], blocked=blocked)
     assert next_goal.state == (

@@ -6,12 +6,12 @@ from django_goals.models import (
 )
 
 
-def pursue(goal):
+def pursue(goal: Goal) -> RetryMeLater:
     return RetryMeLater()
 
 
 @pytest.mark.django_db
-def test_max_transitions():
+def test_max_transitions() -> None:
     goal = schedule(pursue)
     call_command('goals_busy_worker', max_progress_count=10)
     goal.refresh_from_db()
@@ -19,12 +19,12 @@ def test_max_transitions():
     assert progress_count == 10
 
 
-def achieve(goal):
+def achieve(goal: Goal) -> AllDone:
     return AllDone()
 
 
 @pytest.mark.django_db
-def test_max_transitions_in_single_turn():
+def test_max_transitions_in_single_turn() -> None:
     for _ in range(10):
         schedule(achieve)
     call_command('goals_busy_worker', max_progress_count=5)

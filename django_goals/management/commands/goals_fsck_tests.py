@@ -3,16 +3,16 @@ from django.core.management import call_command
 
 from django_goals.factories import GoalFactory
 from django_goals.models import (
-    GoalState, PreconditionFailureBehavior, PreconditionsMode,
+    Goal, GoalState, PreconditionFailureBehavior, PreconditionsMode,
 )
 
 
 @pytest.mark.django_db
-def test_goals_fsck(goal):
+def test_goals_fsck(goal: Goal) -> None:
     goal.precondition_goals.add(
-        GoalFactory(state=GoalState.ACHIEVED),
-        GoalFactory(state=GoalState.WAITING_FOR_WORKER),
-        GoalFactory(state=GoalState.NOT_GOING_TO_HAPPEN_SOON),
+        GoalFactory.create(state=GoalState.ACHIEVED),
+        GoalFactory.create(state=GoalState.WAITING_FOR_WORKER),
+        GoalFactory.create(state=GoalState.NOT_GOING_TO_HAPPEN_SOON),
     )
     call_command('goals_fsck')
     goal.refresh_from_db()
@@ -23,12 +23,12 @@ def test_goals_fsck(goal):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize('goal', [{'preconditions_mode': PreconditionsMode.ANY}], indirect=True)
-def test_goals_fsck_any_mode(goal):
+def test_goals_fsck_any_mode(goal: Goal) -> None:
     goal.precondition_goals.add(
-        GoalFactory(state=GoalState.ACHIEVED),
-        GoalFactory(state=GoalState.WAITING_FOR_WORKER),
-        GoalFactory(state=GoalState.WAITING_FOR_WORKER),
-        GoalFactory(state=GoalState.NOT_GOING_TO_HAPPEN_SOON),
+        GoalFactory.create(state=GoalState.ACHIEVED),
+        GoalFactory.create(state=GoalState.WAITING_FOR_WORKER),
+        GoalFactory.create(state=GoalState.WAITING_FOR_WORKER),
+        GoalFactory.create(state=GoalState.NOT_GOING_TO_HAPPEN_SOON),
     )
     call_command('goals_fsck')
     goal.refresh_from_db()
@@ -41,11 +41,11 @@ def test_goals_fsck_any_mode(goal):
 @pytest.mark.parametrize('goal', [{
     'precondition_failure_behavior': PreconditionFailureBehavior.PROCEED,
 }], indirect=True)
-def test_goals_fsck_proceed_mode(goal):
+def test_goals_fsck_proceed_mode(goal: Goal) -> None:
     goal.precondition_goals.add(
-        GoalFactory(state=GoalState.ACHIEVED),
-        GoalFactory(state=GoalState.WAITING_FOR_WORKER),
-        GoalFactory(state=GoalState.NOT_GOING_TO_HAPPEN_SOON),
+        GoalFactory.create(state=GoalState.ACHIEVED),
+        GoalFactory.create(state=GoalState.WAITING_FOR_WORKER),
+        GoalFactory.create(state=GoalState.NOT_GOING_TO_HAPPEN_SOON),
     )
     call_command('goals_fsck')
     goal.refresh_from_db()
