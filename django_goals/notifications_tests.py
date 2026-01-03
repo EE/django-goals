@@ -2,8 +2,8 @@ from typing import Any, Callable
 
 import pytest
 
-from .blocking_worker import listen_goal_waiting_for_worker
 from .models import AllDone, Goal, schedule
+from .notifications import listen_goal_waiting_for_worker
 
 
 def noop(goal: Goal) -> AllDone:

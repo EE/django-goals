@@ -1,5 +1,6 @@
 import uuid
 
+import psycopg
 from django.db import connection, connections
 from django.db.backends.utils import CursorWrapper
 
@@ -43,12 +44,13 @@ def get_goal_progress_channel(goal_id: uuid.UUID) -> str:
     return f'goal_progress_{goal_id.hex}'
 
 
-def wait() -> str:
+def wait() -> psycopg.Notify:
     """
     Wait for a goal progress notification.
     """
     pg_conn = connections['default'].connection
+    assert isinstance(pg_conn, psycopg.Connection)
     notification_generator = pg_conn.notifies()
     for notification in notification_generator:
         notification_generator.close()
-    return notification  # pylint: disable=undefined-loop-variable
+    return notification

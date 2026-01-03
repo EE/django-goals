@@ -81,17 +81,7 @@ django-settings-module = "example_project.settings"
 
 [tool.mypy]
 plugins = ["mypy_django_plugin.main"]
-warn_unused_configs = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-strict_equality = true
-check_untyped_defs = true
-disallow_subclassing_any = true
-disallow_untyped_decorators = true
-disallow_any_generics = true
-disallow_untyped_calls = true
-disallow_incomplete_defs = true
-disallow_untyped_defs = true
+strict = true
 
 [tool.django-stubs]
 django_settings_module = "example_project.settings"

@@ -1,5 +1,6 @@
 import datetime
 import json
+from typing import cast
 
 from django.contrib import admin, messages
 from django.db import models
@@ -136,13 +137,13 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):  # type: ignore
         return False
 
     def get_queryset(self, request: HttpRequest) -> 'models.QuerySet[Goal]':
-        return super().get_queryset(request).annotate(
+        return super().get_queryset(request).annotate(  # type: ignore[no-any-return]
             progress_count=models.Count('progress'),
         )
 
     @admin.display
     def progress_count(self, obj: Goal) -> int:
-        return obj.progress_count  # type: ignore
+        return cast(int, obj.progress_count)  # type: ignore[attr-defined]
 
     @admin.display(description='Instructions')
     def instructions_pre(self, obj: Goal) -> str:
@@ -154,7 +155,7 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):  # type: ignore
     @admin.display(description='Related Objects')
     def related_objects(self, obj: Goal) -> str:
         rows_html = []
-        for field in obj._meta._relation_tree:  # type: ignore
+        for field in obj._meta._relation_tree:  # type: ignore[attr-defined]
             if field.model._meta.app_label == 'django_goals':
                 continue
             related_objects = field.model.objects.filter(**{field.name: obj})

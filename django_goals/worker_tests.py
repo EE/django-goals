@@ -5,13 +5,13 @@ from unittest import mock
 import pytest
 from django.utils import timezone
 
-from .blocking_worker import listen_goal_waiting_for_worker
 from .factories import GoalFactory
 from .models import (
     AllDone, Goal, GoalState, PreconditionsMode, RetryMeLater,
     RetryMeLaterException, handle_waiting_for_preconditions,
     handle_waiting_for_worker,
 )
+from .notifications import listen_goal_waiting_for_worker
 
 
 @pytest.mark.django_db

@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 import uuid
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, cast
 
 from django.conf import settings
 from django.db import connections, models, transaction
@@ -542,7 +542,8 @@ def follow_instructions(goal: Goal) -> 'RetryMeLater | AllDone':
     """
     Call the handler function with instructions.
     """
-    func = import_string(goal.handler)
+    func_untyped = import_string(goal.handler)
+    func = cast(Callable[[Goal], RetryMeLater | AllDone], func_untyped)
     instructions = goal.instructions
     if instructions is None:
         instructions = {}
@@ -569,7 +570,7 @@ def get_retry_delay(failure_index: int) -> datetime.timedelta | None:
     give_up_at = getattr(settings, 'GOALS_GIVE_UP_AT', 4)
     if current_failure_index >= give_up_at:
         return None
-    return datetime.timedelta(seconds=10) * (2 ** failure_index)
+    return datetime.timedelta(seconds=10 * 2 ** failure_index)
 
 
 def remove_old_goals(now: datetime.datetime | None = None) -> int:
