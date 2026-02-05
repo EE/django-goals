@@ -6,7 +6,7 @@ from .factories import GoalFactory
 from .models import (
     AllDone, Goal, GoalState, PreconditionFailureBehavior, PreconditionsMode,
     handle_unblocked_goals, handle_waiting_for_worker, schedule,
-    unblock_retry_goal,
+    unblock_retry_goal, _add_precondition_goals,
 )
 from .pickups import GoalPickup
 
@@ -63,6 +63,52 @@ def test_schedule_updates_deadline() -> None:
     )
     goal_a.refresh_from_db()
     assert goal_a.deadline == now - datetime.timedelta(minutes=1)
+
+
+@pytest.mark.django_db 
+def test_blocked_goal_with_dependencies_unblock_transitions():
+    """
+    Test the scenario from the problem statement:
+    1. Schedule a blocked goal
+    2. Add dependency  
+    3. Unblock the goal
+    4. Verify correct state transitions
+    
+    This tests the bug where _mark_as_unfailed would always go to WAITING_FOR_DATE
+    instead of determining the correct state based on preconditions.
+    """
+    # Test case 1: blocked goal with achieved precondition
+    precondition_goal = GoalFactory(state=GoalState.ACHIEVED)
+    blocked_goal = schedule(noop, blocked=True)
+    assert blocked_goal.state == GoalState.BLOCKED
+    
+    # Add dependency while blocked
+    _add_precondition_goals(blocked_goal, [precondition_goal])
+    blocked_goal.refresh_from_db()
+    assert blocked_goal.waiting_for_count == 0  # precondition already achieved
+    
+    # Unblock the goal - since precondition is achieved and date is current, 
+    # it should go to WAITING_FOR_DATE (then get processed by normal flow)
+    unblock_retry_goal(blocked_goal.id)
+    blocked_goal.refresh_from_db()
+    assert blocked_goal.state == GoalState.WAITING_FOR_DATE
+    
+    # Test case 2: blocked goal with unachieved precondition  
+    precondition_goal2 = GoalFactory(state=GoalState.WAITING_FOR_WORKER)
+    blocked_goal2 = schedule(noop, blocked=True)
+    assert blocked_goal2.state == GoalState.BLOCKED
+    
+    # Add dependency while blocked
+    _add_precondition_goals(blocked_goal2, [precondition_goal2])
+    blocked_goal2.refresh_from_db()
+    assert blocked_goal2.waiting_for_count == 1  # waiting for unachieved precondition
+    
+    # Unblock the goal - since precondition is not achieved,
+    # it should go to WAITING_FOR_PRECONDITIONS (not WAITING_FOR_DATE)
+    unblock_retry_goal(blocked_goal2.id)
+    blocked_goal2.refresh_from_db()
+    assert blocked_goal2.state == GoalState.WAITING_FOR_PRECONDITIONS
+    assert blocked_goal2.waiting_for_count == 1
 
 
 @pytest.mark.django_db
