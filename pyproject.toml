@@ -1,6 +1,6 @@
 [project]
 name = "django-goals"
-version = "0.7.6"
+version = "0.7.7"
 description = ""
 authors = []
 readme = "README.md"
