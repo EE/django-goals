@@ -7,15 +7,18 @@ You can use Django Goals as a classic DAG workflow engine, where you define task
 When you need more flexibility, Django Goals allows you to dynamically add dependencies - modify the DAG while it is progressing. This pattern requires you to write idempotent handlers, but naturally handles failures and complex business workflows - tasks simply check their current state and decide what to do next.
 
 ## Features
-- Define tasks as goals with preconditions (dates and other goals)
-- Track goal states and progress
-- Handle goal dependencies and automatically trigger downstream goals
-- Retry failed goals with customizable retry strategies (e.g., exponential backoff)
-- Asynchronous goal processing using a reliable worker system
-- Integrate seamlessly with Django ORM for goal persistence and querying
-- Customize goal execution and error handling
-- Monitor and manage goals via Admin interface
-- Support for tiered workers with deadline horizons to prioritize urgent tasks
+- **No extra infrastructure** - your PostgreSQL database is the queue. No Redis, no RabbitMQ, no separate result store.
+- **Transactional by design** - a task's database writes commit atomically with its state change, and a task scheduled inside `transaction.atomic()` becomes visible to workers only if your transaction commits. The "task ran but the data was rolled back" class of bugs disappears.
+- **Workflows, not just tasks** - goals declare preconditions (dates and other goals), and a running goal can pause itself and add new preconditions mid-flight, growing the DAG dynamically.
+- **Everything is a Django model** - inspect, query, and manage goals with the ORM and the admin like any other data.
+- **Middleware, just like web requests** - handler execution and scheduling are wrapped by configurable middleware, the same pattern Django uses for views. Think of Django Goals as a "background request queue": the handler plays the view, and cross-cutting concerns like Sentry tracing plug in around it.
+- **Built for failure** - automatic retries, failure propagation through the dependency graph, and detection of "killer tasks" that crash workers without leaving a trace.
+- **Deadline-driven prioritization** - goals with the nearest deadlines are picked up first, and tiered workers can reserve capacity for urgent work.
+
+## Requirements
+
+- PostgreSQL with the `psycopg` (version 3) driver. Django Goals relies on `SELECT ... FOR UPDATE SKIP LOCKED` and `LISTEN`/`NOTIFY`; other databases are not supported.
+- Django 4.2+, Python 3.13+
 
 ## Installation
 
@@ -50,7 +53,7 @@ Define a goal by scheduling it with a handler function. The handler function con
 ```python
 # handlers.py
 
-from django_goals.models import schedule, AllDone, RetryMeLater
+from django_goals.models import AllDone, RetryMeLater
 
 def my_goal_handler(goal, *args, **kwargs):
     # ...Your goal logic here...
@@ -59,6 +62,14 @@ def my_goal_handler(goal, *args, **kwargs):
     # Return AllDone() when the goal is done according to the logic
     return AllDone()
 ```
+
+The handler signals the outcome by its return value:
+
+- `AllDone()` - the goal is achieved.
+- `RetryMeLater(precondition_date=..., precondition_goals=..., message=...)` - call the handler again later, optionally after a date and/or after other goals are achieved. This is not a failure - think of it as a process yielding control. When returning is inconvenient, you can equivalently `raise RetryMeLaterException(...)`.
+- Raising an exception - the attempt failed and will be retried with exponential backoff (see [Monitoring and Managing Goals](#monitoring-and-managing-goals)).
+
+Handlers run inside a database transaction, which is rolled back if the handler raises. A handler may be called multiple times for the same goal, so write handlers to be idempotent: check the current state and decide what remains to be done.
 
 ### Scheduling goals
 
@@ -70,7 +81,7 @@ from .handlers import my_goal_handler
 from django_goals.models import schedule
 
 goal = schedule(
-    sample_goal_handler,
+    my_goal_handler,
     args=[...],
     kwargs={...},
     precondition_date=timezone.now() + timezone.timedelta(days=1)
@@ -78,6 +89,17 @@ goal = schedule(
 ```
 
 The first argument may be the handler callable (its fully-qualified name is derived automatically) or a string that is used directly as the handler's fully-qualified name (`"myapp.handlers.my_goal_handler"`). The string form is handy when the handler isn't importable at schedule time.
+
+Other `schedule()` arguments:
+
+- `args`, `kwargs` - arguments passed to the handler. Must be JSON-serializable.
+- `precondition_goals` - goals that must be achieved before this one is pursued.
+- `preconditions_mode` - how multiple precondition goals are combined (see below).
+- `precondition_failure_behavior` - what happens when a precondition fails (see below).
+- `deadline` - goals with sooner deadlines are picked up first. Defaults to `now() + GOALS_DEFAULT_DEADLINE_SECONDS`, or to the current goal's deadline when scheduling from inside a handler. A goal's deadline propagates recursively to its preconditions, moving theirs earlier if needed.
+- `blocked=True` - create the goal in the `BLOCKED` state.
+
+`schedule()` only writes to the database, so you can call it inside `transaction.atomic()` together with your business-data changes - the goal becomes visible to workers if and only if your transaction commits.
 
 ### Preconditions Mode
 
@@ -108,15 +130,27 @@ In ANY mode, there can be a situation when a goal's handler will be invoked whil
    - When handler returns `RetryMeLater()` with no precondition goals (`precondition_goals=[]`), the system will:
      - Retry immediately if all existing preconditions are achieved
      - Wait for any not-achieved precondition otherwise
-   - When handler returns `RetryMeLater(precondition_goals=None)`, the goal will retry immediately, regardles of preconditions' state
+   - When handler returns `RetryMeLater(precondition_goals=None)`, the goal will retry immediately, regardless of preconditions' state
+
+See `example_app/partition_sort.py` for a quicksort-like workflow built on ANY mode.
+
+### Precondition Failure Behavior
+
+By default (`PreconditionFailureBehavior.BLOCK`), when a precondition goal fails, the dependent goal transitions to `NOT_GOING_TO_HAPPEN_SOON` and is not pursued - failure propagates down the dependency graph, and retrying the failed goal unblocks dependents again. With `precondition_failure_behavior=PreconditionFailureBehavior.PROCEED`, failed preconditions are treated like achieved ones: the goal is pursued once every precondition has either succeeded or failed, and the handler can inspect them and decide what to do.
 
 ### Running Workers
 
-Run the worker to process the goals. There are two types of workers: blocking and busy-wait.
+Run the worker to process the goals. There are three worker commands:
+
+| Command | What it does |
+|---|---|
+| `goals_busy_worker` | Single-threaded worker. Polls for work, performs all state transitions, executes handlers, cleans up old goals. |
+| `goals_threaded_worker` | Multi-threaded worker. One thread handles state transitions and cleanup; the remaining threads execute handlers, optionally restricted by deadline horizon. Also records goal pickups for killer-task detection. |
+| `goals_blocking_worker` | Latency-optimized worker. Sleeps on PostgreSQL `LISTEN`/`NOTIFY` and executes handlers the moment a goal becomes ready. Does **not** perform date/precondition transitions or cleanup. |
 
 You can mix worker types and you can spawn many of them.
 
-Some work cannot be done by blocking worker, so **you must run at least one busy worker instance**. Blocking worker is useful for minimizing latency in certain setups.
+Because the blocking worker only executes handlers for goals that are already ready, **you must run at least one busy or threaded worker** - those are the workers that move goals through date and precondition transitions and delete old goals. Blocking worker is useful for minimizing latency in certain setups.
 
 #### Busy-Wait Worker
 
@@ -140,9 +174,9 @@ A quick way to replace exited workers is to use `yes | xargs -P <how many worker
 yes | xargs -I -L1 -P4 -- ./manage.py goals_busy_worker --max-progress-count 100
 ```
 
-#### Worker with Deadline Horizons
+#### Threaded Worker
 
-You can create workers that only process goals with deadlines within a specific time frame using the deadline horizon parameter:
+The threaded worker runs multiple worker threads in a single process. You can create workers that only process goals with deadlines within a specific time frame using the deadline horizon parameter:
 
 ```bash
 # Run 2 workers that only handle goals with deadlines within the next 30 minutes
@@ -161,6 +195,7 @@ Horizon format examples:
 - `30m` - 30 minutes
 - `2h` - 2 hours
 - `1d` - 1 day
+- `1w` - 1 week
 - `none` - No deadline limit (same as just specifying a number)
 
 You can use multiple `--threads` parameters to create workers with different horizons:
@@ -170,10 +205,7 @@ You can use multiple `--threads` parameters to create workers with different hor
 python manage.py goals_threaded_worker --threads 1:0s --threads 2:4h --threads 5
 ```
 
-This would create:
-- 1 critical worker (only handles goals due immediately)
-- 2 urgent workers (only handles goals due within 4 hours)
-- 5 regular workers (handle any goal regardless of deadline)
+Pass `--once` to exit when all threads run out of work - useful in tests and batch jobs.
 
 #### Blocking Worker
 
@@ -197,12 +229,26 @@ Goals can be in various states:
 - **ACHIEVED** - The goal has been achieved.
 - **GIVEN_UP** - There have been too many failed attempts when pursuing the goal.
 - **NOT_GOING_TO_HAPPEN_SOON** - The goal is waiting for a precondition that won't be achieved soon.
+- **IT_IS_A_KILLER_TASK** - The goal was picked up too many times without ever recording progress, suggesting it crashes workers.
 
 The state transitions are managed automatically based on the preconditions and the outcome of the handler function.
 
+When a handler raises an exception, the goal is retried after 10, 20, 40, ... seconds (doubling each time); after `GOALS_GIVE_UP_AT` failed attempts it transitions to `GIVEN_UP`. Independently, a goal that accumulates `GOALS_MAX_PROGRESS_COUNT` progress records without being achieved is also given up.
+
+A handler that crashes the whole worker process (segfault, OOM kill) leaves no progress record at all, so the goal would be retried indefinitely, killing every worker in turn. To detect this, the threaded worker records each pickup outside the worker transaction; a goal that accumulates `GOALS_MAX_PICKUPS` pickups without completing is marked `IT_IS_A_KILLER_TASK` and no longer pursued.
+
+There are also management commands for operations work:
+
+- `python manage.py goals_retry [--limit N]` - retry all goals in the `GIVEN_UP` state.
+- `python manage.py goals_fsck` - verify and fix the denormalized precondition counters on all goals.
+
 ### Settings
 
+`GOALS_GIVE_UP_AT` - Number of failed attempts after which a goal transitions to `GIVEN_UP`. Default is `4`.
+
 `GOALS_MAX_PROGRESS_COUNT` - Maximum number of progress entries a goal can have. Useful for limiting impact of bugs in handler functions. Instead of spinning indefinitely and filling up the database, the goal will be marked as failed. Set it to `None` to disable the limit. Default is `100`.
+
+`GOALS_MAX_PICKUPS` - Maximum number of times a goal may be picked up by a worker without completing before it is marked as a killer task. Set to `None` to disable killer task detection. Default is `None`.
 
 `GOALS_RETENTION_SECONDS` - Number of seconds to keep achieved goals in the database for. Set to `None` to keep them indefinitely. Default is `60 * 60 * 24 * 7` (1 week).
 
@@ -210,7 +256,11 @@ The state transitions are managed automatically based on the preconditions and t
 
 `GOALS_MEMORY_LIMIT_MIB` - Maximum memory usage of a worker process. This is enforced using `resource` python module. Set to `None` to disable the limit. Default is `None`.
 
-`GOALS_TIME_LIMIT_SECONDS` - Maximum time a handler function can run. If the handler function runs longer than this, it is terminated. Default is `None` (no limit).
+`GOALS_TIME_LIMIT_SECONDS` - Maximum time a handler function can run. If the handler runs longer, a `TimesUp` exception is raised in it (via `SIGALRM`), which counts as a regular failure. Default is `None` (no limit).
+
+`GOALS_MIDDLEWARE` - List of middleware wrapping goal execution, analogous to Django's request middleware. Default is `['django_goals.pickups.Middleware', 'django_goals.models.FsckMiddleware']`. If you use Sentry, prepend `'django_goals.sentry.Middleware'` to get a `queue.process` transaction for every handler call.
+
+`GOALS_SCHEDULE_MIDDLEWARE` - List of middleware wrapping `schedule()`. Default is `[]`. Sentry users can add `'django_goals.sentry.ScheduleMiddleware'` to connect scheduling and execution with distributed tracing.
 
 ## Performance
 
