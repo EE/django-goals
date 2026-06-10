@@ -77,6 +77,8 @@ goal = schedule(
 )
 ```
 
+The first argument may be the handler callable (its fully-qualified name is derived automatically) or a string that is used directly as the handler's fully-qualified name (`"myapp.handlers.my_goal_handler"`). The string form is handy when the handler isn't importable at schedule time.
+
 ### Preconditions Mode
 
 When scheduling a goal with preconditions, you can specify how these preconditions should be evaluated using `preconditions_mode`:

@@ -52,6 +52,14 @@ def noop(goal: Goal) -> AllDone:  # pylint: disable=unused-argument
 
 
 @pytest.mark.django_db
+def test_schedule_accepts_string_handler() -> None:
+    # A string is stored verbatim; it is not imported until the goal is
+    # pursued, so it need not be resolvable at schedule time.
+    goal = schedule('not.importable.yet.handler')
+    assert goal.handler == 'not.importable.yet.handler'
+
+
+@pytest.mark.django_db
 def test_schedule_updates_deadline() -> None:
     now = datetime.datetime(2024, 11, 6, 11, 41, 0, tzinfo=datetime.timezone.utc)
     goal_a = GoalFactory.create(deadline=now)

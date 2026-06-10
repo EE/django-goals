@@ -627,7 +627,7 @@ type JsonSerializable = str | int | float | bool | None | Iterable['JsonSerializ
 
 
 def schedule(
-    func: Callable[[Goal], AllDone | RetryMeLater],
+    func: Callable[[Goal], AllDone | RetryMeLater] | str,
     args: Iterable[JsonSerializable] | None = None,
     kwargs: dict[str, JsonSerializable] | None = None,
     precondition_date: datetime.datetime | None = None,
@@ -640,6 +640,10 @@ def schedule(
 ) -> Goal:
     """
     Schedule a goal to be pursued.
+
+    ``func`` may be a callable, in which case its fully-qualified name is
+    derived automatically, or a string which is treated directly as the
+    handler's fully-qualified name (``module.func_name``).
     """
     state = GoalState.WAITING_FOR_DATE
 
@@ -667,10 +671,13 @@ def schedule(
     if blocked:
         state = GoalState.BLOCKED
 
-    module = inspect.getmodule(func)
-    if module is None:
-        raise ValueError('Cannot determine module of the function')
-    func_name = module.__name__ + '.' + func.__name__
+    if isinstance(func, str):
+        func_name = func
+    else:
+        module = inspect.getmodule(func)
+        if module is None:
+            raise ValueError('Cannot determine module of the function')
+        func_name = module.__name__ + '.' + func.__name__
 
     if deadline is None and thread_local.current_goal is not None:
         deadline = thread_local.current_goal.deadline
