@@ -19,6 +19,7 @@ from .notifications import (
 )
 from .pickups import GoalPickup
 from .types import PursueGoalT, ScheduleGoalT
+from .uuid7 import uuid7
 
 
 __all__ = (
@@ -78,7 +79,7 @@ class Goal(models.Model):
     Goal represents a state we want to achieve.
     Goal will be pursued by calling a handler function.
     """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     state = models.CharField(
         max_length=30,
         db_index=True,
@@ -193,7 +194,7 @@ class GoalDependency(models.Model):
     The GoalDependency is a many-to-many through model for Goal.
     Its purpose is to define which goals need to be achieved before another goal can be pursued.
     """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     dependent_goal = models.ForeignKey(
         to=Goal,
         on_delete=models.CASCADE,
@@ -215,7 +216,7 @@ class GoalProgress(models.Model):
     """
     GoalProgress represents a single attempt to achieve a goal.
     """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     goal = models.ForeignKey(Goal, on_delete=models.CASCADE, related_name='progress')
     success = models.BooleanField()
     created_at = models.DateTimeField(default=timezone.now)
