@@ -8,7 +8,6 @@ from typing import Callable, Iterable, Optional, cast
 
 from django.conf import settings
 from django.db import connections, models, transaction
-from django.db.models.functions import Least
 from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
@@ -127,6 +126,10 @@ class Goal(models.Model):
         default=timezone.now,
         help_text=_('Goals having deadline sooner will be pursued first.'),
     )
+    deadline_propagated = models.BooleanField(
+        default=True,
+        help_text=_('Whether the deadline got to dependencies of this goal.'),
+    )
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
 
     class Meta:
@@ -162,6 +165,11 @@ class Goal(models.Model):
                 fields=['waiting_for_failed_count'],
                 condition=models.Q(state=GoalState.NOT_GOING_TO_HAPPEN_SOON),
                 name='goals_unblocking_idx',
+            ),
+            models.Index(  # for propagating deadlines to preconditions
+                fields=['deadline'],
+                condition=models.Q(deadline_propagated=False),
+                name='goals_deadline_propagation_idx',
             ),
             models.Index(  # for deleting old done goals
                 fields=['created_at'],
@@ -205,11 +213,22 @@ class GoalDependency(models.Model):
         on_delete=models.PROTECT,
         related_name='dependents',
     )
+    deadline_propagated = models.BooleanField(
+        default=True,
+        help_text=_('Whether the deadline of the dependent goal got to the precondition goal.'),
+    )
 
     class Meta:
         unique_together = (
             ('dependent_goal', 'precondition_goal'),
         )
+        indexes = [
+            models.Index(
+                fields=['id'],
+                condition=models.Q(deadline_propagated=False),
+                name='goals_dependency_deadline_idx',
+            ),
+        ]
 
 
 class GoalProgress(models.Model):
@@ -389,6 +408,65 @@ def handle_unblocked_goals() -> int:
     ids = list(qs.values_list('id', flat=True))
     _mark_as_unfailed(ids)
     return len(ids)
+
+
+@transaction.atomic
+def handle_deadline_propagation(batch_size: int = 100) -> int:
+    """
+    Move deadlines of preconditions earlier, to the deadline of goals depending on them.
+    Each call goes one level down the dependency graph.
+    Locked goals (like the ones being pursued) are left for a later call, so we never wait for them.
+    """
+    # goals with a moved deadline pass it to their dependencies
+    goal_ids = list(Goal.objects.filter(
+        deadline_propagated=False,
+    ).order_by(
+        'deadline',
+    ).select_for_update(
+        skip_locked=True,
+        no_key=True,
+    ).values_list('id', flat=True)[:batch_size])
+    _late_dependencies().filter(dependent_goal_id__in=goal_ids).update(deadline_propagated=False)
+    Goal.objects.filter(id__in=goal_ids).update(deadline_propagated=True)
+
+    # dependencies pass it to their preconditions, if we can lock them
+    dependency_ids = [dependency.id for dependency in GoalDependency.objects.filter(
+        deadline_propagated=False,
+    ).order_by(
+        'id',
+    ).select_related(
+        'precondition_goal',
+    ).only(
+        'precondition_goal__id',
+    ).select_for_update(
+        skip_locked=True,
+        no_key=True,
+        of=('self', 'precondition_goal'),
+    )[:batch_size]]
+    late_dependencies = _late_dependencies().filter(id__in=dependency_ids)
+    Goal.objects.filter(id__in=late_dependencies.values('precondition_goal_id')).update(
+        deadline=models.Subquery(late_dependencies.filter(
+            precondition_goal_id=models.OuterRef('id'),
+        ).values('precondition_goal_id').annotate(
+            min_deadline=models.Min('dependent_goal__deadline'),
+        ).values('min_deadline')),
+        # Their dependencies get marked by the next call.
+        # Marking them here could deadlock with another call holding them.
+        deadline_propagated=False,
+    )
+    GoalDependency.objects.filter(id__in=dependency_ids).update(deadline_propagated=True)
+    return len(goal_ids) + len(dependency_ids)
+
+
+def _late_dependencies() -> 'models.QuerySet[GoalDependency]':
+    """
+    Dependencies where the precondition has a later deadline than the goal depending on it.
+    """
+    return GoalDependency.objects.filter(
+        precondition_goal__deadline__gt=models.F('dependent_goal__deadline'),
+    ).exclude(
+        precondition_goal__state=GoalState.ACHIEVED,
+    )
 
 
 @transaction.atomic
@@ -771,6 +849,12 @@ def _add_precondition_goals(goal: Goal, precondition_goals: Iterable[Goal] | Non
 
     # add to our preconditions
     goal.precondition_goals.add(*new_precondition_goals)
+    # Preconditions will get our deadline, if it's sooner. See handle_deadline_propagation.
+    # We don't update them here, because that would lock their preconditions, all the way down.
+    _late_dependencies().filter(
+        dependent_goal=goal,
+        precondition_goal__in=new_precondition_goals,
+    ).update(deadline_propagated=False)
 
     # update waiting-for counters
     for precondition_goal in new_precondition_goals:
@@ -807,21 +891,3 @@ def _add_precondition_goals(goal: Goal, precondition_goals: Iterable[Goal] | Non
         'waiting_for_not_achieved_count',
         'waiting_for_failed_count',
     ])
-
-    # move deadline earlier for preconditions, if needed
-    update_goals_deadline(Goal.objects.filter(
-        id__in=[g.id for g in new_precondition_goals],
-    ), goal.deadline)
-
-
-def update_goals_deadline(goals_qs: 'models.QuerySet[Goal]', deadline: datetime.datetime) -> None:
-    goals_to_be_updated = list(goals_qs.filter(
-        deadline__gt=deadline,
-    ).exclude(
-        state=GoalState.ACHIEVED,
-    ))
-    Goal.objects.filter(
-        id__in=[goal.id for goal in goals_to_be_updated],
-    ).update(deadline=Least('deadline', models.Value(deadline)))
-    for goal in goals_to_be_updated:
-        update_goals_deadline(goal.precondition_goals.all(), deadline)

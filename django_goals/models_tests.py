@@ -1,11 +1,13 @@
 import datetime
+import threading
 
 import pytest
+from django.db import connection, transaction
 
 from .factories import GoalFactory
 from .models import (
     AllDone, Goal, GoalState, PreconditionFailureBehavior, PreconditionsMode,
-    block_goal, handle_unblocked_goals,
+    block_goal, handle_deadline_propagation, handle_unblocked_goals,
     handle_waiting_for_failed_preconditions, handle_waiting_for_worker,
     schedule, unblock_retry_goal,
 )
@@ -110,18 +112,75 @@ def test_schedule_accepts_string_handler() -> None:
     assert goal.handler == 'not.importable.yet.handler'
 
 
+def deadline_of(goal: Goal) -> datetime.datetime:
+    return Goal.objects.values_list('deadline', flat=True).get(id=goal.id)
+
+
+def propagate_deadlines() -> None:
+    for _ in range(10):
+        if not handle_deadline_propagation():
+            return
+    raise AssertionError('Deadline propagation does not settle')
+
+
 @pytest.mark.django_db
 def test_schedule_updates_deadline() -> None:
     now = datetime.datetime(2024, 11, 6, 11, 41, 0, tzinfo=datetime.timezone.utc)
+    sooner = now - datetime.timedelta(minutes=1)
+    urgent = now - datetime.timedelta(minutes=2)
     goal_a = GoalFactory.create(deadline=now)
-    goal_b = GoalFactory.create(precondition_goals=[goal_a])
+    goal_b = GoalFactory.create(deadline=now, precondition_goals=[goal_a])
+    achieved_goal = GoalFactory.create(state=GoalState.ACHIEVED, deadline=now)
+    urgent_goal = GoalFactory.create(deadline=urgent)
     schedule(
         noop,
-        deadline=now - datetime.timedelta(minutes=1),
-        precondition_goals=[goal_b],
+        deadline=sooner,
+        precondition_goals=[goal_b, achieved_goal, urgent_goal],
     )
-    goal_a.refresh_from_db()
-    assert goal_a.deadline == now - datetime.timedelta(minutes=1)
+
+    handle_deadline_propagation()
+    assert deadline_of(goal_b) == sooner
+    assert deadline_of(goal_a) == now  # one level at a time
+
+    propagate_deadlines()
+    assert deadline_of(goal_a) == sooner
+    assert deadline_of(achieved_goal) == now
+    assert deadline_of(urgent_goal) == urgent
+
+
+@pytest.mark.django_db(transaction=True)
+def test_deadline_propagation_does_not_wait_for_goal_being_pursued() -> None:
+    now = datetime.datetime(2024, 11, 6, 11, 41, 0, tzinfo=datetime.timezone.utc)
+    sooner = now - datetime.timedelta(minutes=1)
+    goal_a = GoalFactory.create(state=GoalState.WAITING_FOR_WORKER, deadline=now)
+    goal_b = GoalFactory.create(deadline=now, precondition_goals=[goal_a])
+    locked = threading.Event()
+    release = threading.Event()
+
+    def pursue_goal_a() -> None:  # worker keeps the goal locked while pursuing it
+        with transaction.atomic():
+            Goal.objects.select_for_update(no_key=True).get(id=goal_a.id)
+            locked.set()
+            release.wait(10)
+        connection.close()
+
+    worker = threading.Thread(target=pursue_goal_a)
+    worker.start()
+    assert locked.wait(10)
+    with connection.cursor() as cursor:
+        cursor.execute("SET lock_timeout = '1s'")  # fail instead of waiting
+    try:
+        schedule(noop, deadline=sooner, precondition_goals=[goal_b])
+        propagate_deadlines()
+    finally:
+        release.set()
+        worker.join()
+        with connection.cursor() as cursor:
+            cursor.execute('RESET lock_timeout')
+
+    assert deadline_of(goal_a) == now
+    propagate_deadlines()
+    assert deadline_of(goal_a) == sooner
 
 
 @pytest.mark.django_db

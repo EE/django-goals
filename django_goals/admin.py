@@ -114,6 +114,7 @@ class GoalAdmin(DjangoObjectActions, admin.ModelAdmin):  # type: ignore
         'waiting_for_not_achieved_count',
         'waiting_for_failed_count',
         'deadline',
+        'deadline_propagated',
         'created_at',
         'related_objects',
     )
