@@ -4,17 +4,9 @@
 
 Reproduced against 0.7.7.
 
-- `_mark_as_failed` and `_mark_as_unfailed` change a dependent's counters by 1
-  even when several of its preconditions are in the same batch.
-  A diamond C ← {A, B} then gets stuck
-  in `NOT_GOING_TO_HAPPEN_SOON` (BLOCK) or `WAITING_FOR_PRECONDITIONS` (PROCEED)
-  until `goals_fsck` runs.
-- PROCEED mode: unfailing a precondition does not restore `waiting_for_count` of its dependents,
-  so they run before it is achieved.
-- PROCEED mode: `_add_precondition_goals` subtracts all failed preconditions
-  from a count of the new ones only,
-  so `RetryMeLater(precondition_goals=[x])` does not wait for `x`
-  once an earlier precondition has failed.
+- `goals_fsck` sets `waiting_for_count` of an ANY-mode goal back to 1
+  when one precondition has woken it but others are still open,
+  so the goal waits for another one.
 - `GOALS_TIME_LIMIT_SECONDS` makes the threaded worker fail every goal:
   `signal.signal()` raises outside the main thread.
 - `PickupMonitorThread` dies on the first database error,
