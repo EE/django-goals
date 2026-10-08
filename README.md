@@ -96,7 +96,7 @@ Other `schedule()` arguments:
 - `precondition_goals` - goals that must be achieved before this one is pursued.
 - `preconditions_mode` - how multiple precondition goals are combined (see below).
 - `precondition_failure_behavior` - what happens when a precondition fails (see below).
-- `deadline` - goals with sooner deadlines are picked up first. Defaults to `now() + GOALS_DEFAULT_DEADLINE_SECONDS`, or to the current goal's deadline when scheduling from inside a handler. A goal's deadline propagates recursively to its preconditions, moving theirs earlier if needed.
+- `deadline` - goals with sooner deadlines are picked up first. Defaults to `now() + GOALS_DEFAULT_DEADLINE_SECONDS`, or to the current goal's deadline when scheduling from inside a handler. A goal's deadline propagates recursively to its preconditions, moving theirs earlier if needed. Busy and threaded workers do it in the background, one level of preconditions per turn.
 - `blocked=True` - create the goal in the `BLOCKED` state.
 
 `schedule()` only writes to the database, so you can call it inside `transaction.atomic()` together with your business-data changes - the goal becomes visible to workers if and only if your transaction commits.

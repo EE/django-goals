@@ -12,9 +12,10 @@ from typing import Iterator, cast
 from django.core.management.base import BaseCommand
 
 from django_goals.models import (
-    handle_unblocked_goals, handle_waiting_for_date,
-    handle_waiting_for_failed_preconditions, handle_waiting_for_preconditions,
-    handle_waiting_for_worker, remove_old_goals,
+    handle_deadline_propagation, handle_unblocked_goals,
+    handle_waiting_for_date, handle_waiting_for_failed_preconditions,
+    handle_waiting_for_preconditions, handle_waiting_for_worker,
+    remove_old_goals,
 )
 from django_goals.pickups import PickupMonitorThread
 
@@ -231,6 +232,7 @@ class TransitionsThread(threading.Thread):
                 handle_waiting_for_failed_preconditions(),
                 handle_waiting_for_date(),
                 handle_unblocked_goals(),
+                handle_deadline_propagation(),
                 remove_old_goals()
             ]
             return any(r for r in results if r)

@@ -6,9 +6,10 @@ from threading import Event
 from django.utils import timezone
 
 from django_goals.models import (
-    handle_unblocked_goals, handle_waiting_for_date,
-    handle_waiting_for_failed_preconditions, handle_waiting_for_preconditions,
-    handle_waiting_for_worker, remove_old_goals,
+    handle_deadline_propagation, handle_unblocked_goals,
+    handle_waiting_for_date, handle_waiting_for_failed_preconditions,
+    handle_waiting_for_preconditions, handle_waiting_for_worker,
+    remove_old_goals,
 )
 
 
@@ -75,6 +76,7 @@ def worker_turn(
     transitions_done += handle_waiting_for_preconditions()
     transitions_done += handle_waiting_for_failed_preconditions()
     transitions_done += handle_unblocked_goals()
+    transitions_done += handle_deadline_propagation()
     progress_count = 0
     while (
         stop_event is None or
