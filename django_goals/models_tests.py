@@ -5,8 +5,9 @@ import pytest
 from .factories import GoalFactory
 from .models import (
     AllDone, Goal, GoalState, PreconditionFailureBehavior, PreconditionsMode,
-    handle_unblocked_goals, handle_waiting_for_worker, schedule,
-    unblock_retry_goal,
+    block_goal, handle_unblocked_goals,
+    handle_waiting_for_failed_preconditions, handle_waiting_for_worker,
+    schedule, unblock_retry_goal,
 )
 from .pickups import GoalPickup
 
@@ -34,6 +35,56 @@ def test_retry_dependent_on(goal: Goal) -> None:
     handle_unblocked_goals()
     next_goal.refresh_from_db()
     assert next_goal.state == GoalState.WAITING_FOR_DATE
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('mode', 'expected_waiting_for_count'),
+    [
+        (PreconditionsMode.ALL, 2),
+        (PreconditionsMode.ANY, 0),  # a wake-up is not taken back
+    ],
+)
+def test_unblock_precondition_proceed_mode(mode: PreconditionsMode, expected_waiting_for_count: int) -> None:
+    preconds = GoalFactory.create_batch(2, state=GoalState.WAITING_FOR_DATE)
+    goal = schedule(
+        noop,
+        precondition_goals=preconds,
+        preconditions_mode=mode,
+        precondition_failure_behavior=PreconditionFailureBehavior.PROCEED,
+    )
+    block_goal(preconds[0].id)
+    unblock_retry_goal(preconds[0].id)
+    goal.refresh_from_db()
+    assert goal.waiting_for_count == expected_waiting_for_count
+    assert goal.waiting_for_failed_count == 0
+
+
+@pytest.mark.django_db
+def test_preconditions_fail_and_unblock_together() -> None:
+    failed_goal = GoalFactory.create(state=GoalState.GIVEN_UP)
+    preconds = [schedule(noop, precondition_goals=[failed_goal]) for _ in range(2)]
+    goal, other_goal = [
+        schedule(
+            noop,
+            precondition_goals=goal_preconds,
+            precondition_failure_behavior=PreconditionFailureBehavior.PROCEED,
+        )
+        for goal_preconds in [preconds, preconds[:1]]
+    ]
+
+    assert handle_waiting_for_failed_preconditions() == 2
+    goal.refresh_from_db()
+    other_goal.refresh_from_db()
+    assert (goal.waiting_for_count, goal.waiting_for_failed_count) == (0, 2)
+    assert (other_goal.waiting_for_count, other_goal.waiting_for_failed_count) == (0, 1)
+
+    unblock_retry_goal(failed_goal.id)
+    assert handle_unblocked_goals() == 2
+    goal.refresh_from_db()
+    other_goal.refresh_from_db()
+    assert (goal.waiting_for_count, goal.waiting_for_failed_count) == (2, 0)
+    assert (other_goal.waiting_for_count, other_goal.waiting_for_failed_count) == (1, 0)
 
 
 @pytest.mark.django_db

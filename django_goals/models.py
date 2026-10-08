@@ -261,18 +261,7 @@ def _mark_as_failed(goal_ids: list[uuid.UUID], target_state: GoalState) -> None:
     if not goal_ids:
         return
     Goal.objects.filter(id__in=goal_ids).update(state=target_state)
-    # update waiting-for failed count in dependent goals
-    Goal.objects.filter(
-        precondition_goals__id__in=goal_ids,
-    ).update(
-        waiting_for_failed_count=models.F('waiting_for_failed_count') + 1,
-    )
-    Goal.objects.filter(
-        precondition_goals__id__in=goal_ids,
-        precondition_failure_behavior=PreconditionFailureBehavior.PROCEED,
-    ).update(
-        waiting_for_count=models.F('waiting_for_count') - 1,
-    )
+    _update_dependents(goal_ids, failed_delta=1)
 
 
 def _mark_as_unfailed(goal_ids: list[uuid.UUID]) -> None:
@@ -283,12 +272,35 @@ def _mark_as_unfailed(goal_ids: list[uuid.UUID]) -> None:
     if not goal_ids:
         return
     Goal.objects.filter(id__in=goal_ids).update(state=GoalState.WAITING_FOR_DATE)
-    # update waiting-for failed count in dependent goals
-    Goal.objects.filter(
-        precondition_goals__id__in=goal_ids,
-    ).update(
-        waiting_for_failed_count=models.F('waiting_for_failed_count') - 1,
-    )
+    _update_dependents(goal_ids, failed_delta=-1)
+
+
+def _update_dependents(goal_ids: list[uuid.UUID], failed_delta: int) -> None:
+    """
+    Update counters of goals depending on goal_ids,
+    which just failed (failed_delta=1) or stopped failing (failed_delta=-1).
+    """
+    # In PROCEED precond mode, failed preconditions are treated like achieved.
+    # ANY mode keeps a wake-up it got - its handler copes with unmet preconditions anyway.
+    proceed = models.Q(precondition_failure_behavior=PreconditionFailureBehavior.PROCEED)
+    if failed_delta < 0:
+        proceed &= models.Q(preconditions_mode=PreconditionsMode.ALL)
+
+    # Group dependents by how many of goal_ids they depend on - usually all by one.
+    dependencies = GoalDependency.objects.filter(
+        precondition_goal__in=goal_ids,
+    ).values('dependent_goal').annotate(count=models.Count('*'))
+    for count in dependencies.values_list('count', flat=True).distinct():
+        delta = failed_delta * count
+        Goal.objects.filter(
+            id__in=dependencies.filter(count=count).values('dependent_goal'),
+        ).update(
+            waiting_for_failed_count=models.F('waiting_for_failed_count') + delta,
+            waiting_for_count=models.Case(
+                models.When(proceed, then=models.F('waiting_for_count') - delta),
+                default=models.F('waiting_for_count'),
+            ),
+        )
 
 
 @transaction.atomic
