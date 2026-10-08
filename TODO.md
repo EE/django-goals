@@ -7,10 +7,15 @@ Reproduced against 0.7.7.
 - `goals_fsck` sets `waiting_for_count` of an ANY-mode goal back to 1
   when one precondition has woken it but others are still open,
   so the goal waits for another one.
-- Adding preconditions locks them, so it waits for those being pursued.
-  `RetryMeLater(precondition_goals=[a, b])` deadlocks
-  when `a` depends on `b` and `b` is being achieved:
-  the worker achieving `b` updates counters of `a`, already locked by the retrying one.
+- Adding preconditions locks them, so it waits for those being pursued,
+  and deadlocks when it holds a goal whose counters the pursuit updates:
+  `RetryMeLater(precondition_goals=[a, b])` when `a` depends on `b` and is newer
+  (preconditions are locked newest first),
+  or an ANY-mode goal scheduling something after its precondition still being pursued.
+  Postgres aborts one side after `deadlock_timeout`.
+  Ways to fix it are under Decide.
+- `goals_fsck` holds a goal while locking its preconditions,
+  so it deadlocks with each one being achieved meanwhile.
 - `GOALS_TIME_LIMIT_SECONDS` makes the threaded worker fail every goal:
   `signal.signal()` raises outside the main thread.
 - `PickupMonitorThread` dies on the first database error,
@@ -26,6 +31,14 @@ Reproduced against 0.7.7.
 - Retrying a `GIVEN_UP` goal allows a single attempt, because old failures still count.
 - ANY mode with BLOCK: one failed precondition blocks the goal
   even when another one is achieved.
+- Adding preconditions without waiting for locks.
+  Like deadline propagation: skip locked preconditions,
+  add their dependencies as not counted yet,
+  and count them in the background once their preconditions can be locked.
+  Transitions would update counters only through counted dependencies.
+  Locking `FOR KEY SHARE` when adding and `FOR UPDATE` before updating dependents works too,
+  but takes raw SQL, a statement per goal,
+  and makes workers wait for transactions adding preconditions.
 
 ## Chores
 
