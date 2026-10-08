@@ -7,9 +7,9 @@ from django.utils import timezone
 
 from .factories import GoalFactory
 from .models import (
-    AllDone, Goal, GoalState, PreconditionsMode, RetryMeLater,
-    RetryMeLaterException, handle_waiting_for_preconditions,
-    handle_waiting_for_worker,
+    AllDone, Goal, GoalState, PreconditionFailureBehavior, PreconditionsMode,
+    RetryMeLater, RetryMeLaterException, handle_waiting_for_preconditions,
+    handle_waiting_for_worker, schedule,
 )
 from .notifications import listen_goal_waiting_for_worker
 
@@ -279,6 +279,30 @@ def test_handle_waiting_for_worker_any_mode_retry_with_stale_goal_state(goal: Go
     assert goal.state == GoalState.WAITING_FOR_DATE
     assert goal.waiting_for_count == expected_waiting_for_count
     assert goal.waiting_for_not_achieved_count == 1
+
+
+@pytest.mark.django_db
+def test_handle_waiting_for_worker_retry_after_failed_precond() -> None:
+    """
+    In PROCEED mode, an old failed precondition doesn't make us skip waiting for a new one.
+    """
+    failed_precond = GoalFactory.create(state=GoalState.GIVEN_UP)
+    goal = schedule(
+        'os.path.join',
+        precondition_goals=[failed_precond],
+        precondition_failure_behavior=PreconditionFailureBehavior.PROCEED,
+    )
+    handle_waiting_for_preconditions()
+    new_precond = GoalFactory.create(state=GoalState.WAITING_FOR_DATE)
+
+    with mock.patch('os.path.join') as handler:
+        handler.return_value = RetryMeLater(precondition_goals=[new_precond])
+        handle_waiting_for_worker()
+
+    goal.refresh_from_db()
+    assert goal.state == GoalState.WAITING_FOR_DATE
+    assert goal.waiting_for_count == 1
+    assert goal.waiting_for_failed_count == 1
 
 
 @pytest.mark.django_db

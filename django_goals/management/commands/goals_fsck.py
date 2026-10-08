@@ -4,8 +4,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from django_goals.models import (
-    NOT_GOING_TO_HAPPEN_SOON_STATES, Goal, GoalState,
-    PreconditionFailureBehavior, PreconditionsMode,
+    NOT_GOING_TO_HAPPEN_SOON_STATES, Goal, GoalState, get_waiting_for_count,
 )
 
 
@@ -45,18 +44,14 @@ def check_fix_goal(goal_id: uuid.UUID) -> uuid.UUID | None:
     preconditions = list(goal.precondition_goals.all().select_for_update(
         no_key=True,
     ))
-    waiting_for_count = 0
+    waiting_for_not_achieved_count = 0
     waiting_for_failed_count = 0
     for pre in preconditions:
         if pre.state != GoalState.ACHIEVED:
-            waiting_for_count += 1
+            waiting_for_not_achieved_count += 1
         if pre.state in NOT_GOING_TO_HAPPEN_SOON_STATES:
             waiting_for_failed_count += 1
-    waiting_for_not_achieved_count = waiting_for_count
-    if goal.precondition_failure_behavior == PreconditionFailureBehavior.PROCEED:
-        waiting_for_count -= waiting_for_failed_count
-    if goal.preconditions_mode == PreconditionsMode.ANY:
-        waiting_for_count = min(1, waiting_for_count)
+    waiting_for_count = get_waiting_for_count(goal, waiting_for_not_achieved_count, waiting_for_failed_count)
 
     if waiting_for_count != goal.waiting_for_count:
         print(f"Goal {goal_id} waiting_for count, DB={goal.waiting_for_count}, recalculated={waiting_for_count}")
