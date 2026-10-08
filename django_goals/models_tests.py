@@ -171,13 +171,15 @@ def test_schedule_any_mode_caps_waiting_for(failure_mode: PreconditionFailureBeh
         (PreconditionFailureBehavior.BLOCK, 1),
     ],
 )
-def test_schedule_failed_precond(failure_mode: PreconditionFailureBehavior, expected_waiting_for_count: int) -> None:
+@pytest.mark.parametrize('mode', [PreconditionsMode.ALL, PreconditionsMode.ANY])
+def test_schedule_failed_precond(failure_mode: PreconditionFailureBehavior, expected_waiting_for_count: int, mode: PreconditionsMode) -> None:
     failed_goal = GoalFactory.create(
         state=GoalState.GIVEN_UP,
     )
     goal = schedule(
         noop,
         precondition_goals=[failed_goal],
+        preconditions_mode=mode,
         precondition_failure_behavior=failure_mode,
     )
     assert goal.state == GoalState.WAITING_FOR_PRECONDITIONS
