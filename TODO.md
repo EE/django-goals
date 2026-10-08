@@ -16,6 +16,11 @@ Reproduced against 0.7.7.
 - `PickupMonitorThread` dies on the first database error,
   silently disabling killer task detection.
 
+## Investigate
+
+- Picking gets expensive with dead index entries at the head of the queue
+  (finding 1 in `database-load.md`).
+
 ## Decide
 
 - Retrying a `GIVEN_UP` goal allows a single attempt, because old failures still count.
@@ -27,3 +32,8 @@ Reproduced against 0.7.7.
 - Release 0.8.0, which drops Django < 5.2.
 - Busy and threaded workers each list the transition handlers,
   so a new handler must be added to both.
+- The threaded worker records pickups even with killer task detection off,
+  2 transactions per goal nobody needs (finding 2 in `database-load.md`).
+- `NOTIFY` with a goal id in its text rules out prepared statements
+  and adds a `pg_stat_statements` entry per goal (finding 3).
+- `test_memory_limit[256-True]` fails with `psycopg[binary]` installed.
