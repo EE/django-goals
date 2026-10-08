@@ -16,3 +16,6 @@ the locked dependencies with one package swapped.
 To reproduce an entry, run `poetry run -- pip install 'django==5.2.*'`
 (without `--`, poetry parses pip's options),
 then `poetry install --sync` to go back.
+
+`database-load.md` has throughput and database load measurements,
+made with `./manage.py goals_perftest`.
