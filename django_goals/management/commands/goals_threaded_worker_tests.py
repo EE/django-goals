@@ -55,6 +55,7 @@ def test_exit_goal(pytestconfig: object, should_commit: bool) -> None:
             'DATABASE_URL': get_current_database_url(),
         },
         cwd=getattr(pytestconfig, 'rootdir', None),
+        check=True,
     )
     assert GoalPickup.objects.filter(goal=goal).exists() is not should_commit
 

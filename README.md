@@ -18,7 +18,7 @@ When you need more flexibility, Django Goals allows you to dynamically add depen
 ## Requirements
 
 - PostgreSQL with the `psycopg` (version 3) driver. Django Goals relies on `SELECT ... FOR UPDATE SKIP LOCKED` and `LISTEN`/`NOTIFY`; other databases are not supported.
-- Django 4.2+, Python 3.13+
+- Django 5.2+, Python 3.13+
 
 ## Installation
 
