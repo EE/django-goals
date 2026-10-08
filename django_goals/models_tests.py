@@ -1,5 +1,6 @@
 import datetime
 import threading
+import time
 
 import pytest
 from django.db import connection, transaction
@@ -181,6 +182,32 @@ def test_deadline_propagation_does_not_wait_for_goal_being_pursued() -> None:
     assert deadline_of(goal_a) == now
     propagate_deadlines()
     assert deadline_of(goal_a) == sooner
+
+
+@pytest.mark.django_db(transaction=True)
+def test_schedule_sees_precondition_achieved_meanwhile() -> None:
+    goal = GoalFactory.create(state=GoalState.WAITING_FOR_WORKER)
+    achieved = threading.Event()
+
+    def achieve_goal() -> None:
+        with transaction.atomic(), connection.cursor() as cursor:
+            Goal.objects.filter(id=goal.id).update(state=GoalState.ACHIEVED)
+            achieved.set()
+            for _ in range(100):  # commit once schedule() waits for us
+                cursor.execute('SELECT EXISTS (SELECT FROM pg_locks WHERE NOT granted)')
+                if cursor.fetchone() == (True,):
+                    break
+                time.sleep(0.01)
+        connection.close()
+
+    worker = threading.Thread(target=achieve_goal)
+    worker.start()
+    assert achieved.wait(10)
+    # the worker updates dependents before commit, so it misses this one
+    next_goal = schedule(noop, precondition_goals=[goal])
+    worker.join()
+
+    assert next_goal.waiting_for_count == 0
 
 
 @pytest.mark.django_db
