@@ -1,6 +1,8 @@
 import datetime
 import threading
 import time
+from contextlib import AbstractContextManager
+from typing import Callable
 
 import pytest
 from django.db import connection, transaction
@@ -150,34 +152,14 @@ def test_schedule_updates_deadline() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_deadline_propagation_does_not_wait_for_goal_being_pursued() -> None:
+def test_deadline_propagation_does_not_wait_for_goal_being_pursued(pursued: Callable[[Goal], AbstractContextManager[None]]) -> None:
     now = datetime.datetime(2024, 11, 6, 11, 41, 0, tzinfo=datetime.timezone.utc)
     sooner = now - datetime.timedelta(minutes=1)
     goal_a = GoalFactory.create(state=GoalState.WAITING_FOR_WORKER, deadline=now)
     goal_b = GoalFactory.create(deadline=now, precondition_goals=[goal_a])
-    locked = threading.Event()
-    release = threading.Event()
-
-    def pursue_goal_a() -> None:  # worker keeps the goal locked while pursuing it
-        with transaction.atomic():
-            Goal.objects.select_for_update(no_key=True).get(id=goal_a.id)
-            locked.set()
-            release.wait(10)
-        connection.close()
-
-    worker = threading.Thread(target=pursue_goal_a)
-    worker.start()
-    assert locked.wait(10)
-    with connection.cursor() as cursor:
-        cursor.execute("SET lock_timeout = '1s'")  # fail instead of waiting
-    try:
+    with pursued(goal_a):
         schedule(noop, deadline=sooner, precondition_goals=[goal_b])
         propagate_deadlines()
-    finally:
-        release.set()
-        worker.join()
-        with connection.cursor() as cursor:
-            cursor.execute('RESET lock_timeout')
 
     assert deadline_of(goal_a) == now
     propagate_deadlines()
