@@ -4,9 +4,6 @@
 
 Reproduced against 0.7.7.
 
-- `goals_fsck` sets `waiting_for_count` of an ANY-mode goal back to 1
-  when one precondition has woken it but others are still open,
-  so the goal waits for another one.
 - Adding preconditions locks them, so it waits for those being pursued,
   and deadlocks when it holds a goal whose counters the pursuit updates:
   `RetryMeLater(precondition_goals=[a, b])` when `a` depends on `b` and is newer
@@ -14,8 +11,6 @@ Reproduced against 0.7.7.
   or an ANY-mode goal scheduling something after its precondition still being pursued.
   Postgres aborts one side after `deadlock_timeout`.
   Ways to fix it are under Decide.
-- `goals_fsck` holds a goal while locking its preconditions,
-  so it deadlocks with each one being achieved meanwhile.
 - `GOALS_TIME_LIMIT_SECONDS` makes the threaded worker fail every goal:
   `signal.signal()` raises outside the main thread.
 - `PickupMonitorThread` dies on the first database error,

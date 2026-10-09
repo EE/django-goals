@@ -4,7 +4,8 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from django_goals.models import (
-    NOT_GOING_TO_HAPPEN_SOON_STATES, Goal, GoalState, get_waiting_for_count,
+    NOT_GOING_TO_HAPPEN_SOON_STATES, Goal, GoalState, PreconditionsMode,
+    get_waiting_for_count,
 )
 
 
@@ -41,9 +42,10 @@ def check_fix_goal(goal_id: uuid.UUID) -> uuid.UUID | None:
     if not goal:
         return None
 
-    preconditions = list(goal.precondition_goals.all().select_for_update(
-        no_key=True,
-    ))
+    # No locks on preconditions, they would deadlock with one being achieved meanwhile.
+    # Whatever changes what a precondition counts for also updates our counters,
+    # so it committed before we locked the goal, or waits for us.
+    preconditions = list(goal.precondition_goals.all())
     waiting_for_not_achieved_count = 0
     waiting_for_failed_count = 0
     for pre in preconditions:
@@ -52,19 +54,23 @@ def check_fix_goal(goal_id: uuid.UUID) -> uuid.UUID | None:
         if pre.state in NOT_GOING_TO_HAPPEN_SOON_STATES:
             waiting_for_failed_count += 1
     waiting_for_count = get_waiting_for_count(goal, waiting_for_not_achieved_count, waiting_for_failed_count)
+    if goal.preconditions_mode == PreconditionsMode.ANY:
+        # The count also remembers wake-ups, which can't be recounted.
+        # So keep them, and only stop waiting for nothing.
+        waiting_for_count = min(waiting_for_count, goal.waiting_for_count)
 
     if waiting_for_count != goal.waiting_for_count:
-        print(f"Goal {goal_id} waiting_for count, DB={goal.waiting_for_count}, recalculated={waiting_for_count}")
+        print(f"Goal {goal.id} waiting_for count, DB={goal.waiting_for_count}, recalculated={waiting_for_count}")
         goal.waiting_for_count = waiting_for_count
         goal.save(update_fields=['waiting_for_count'])
 
     if waiting_for_not_achieved_count != goal.waiting_for_not_achieved_count:
-        print(f"Goal {goal_id} waiting_for_not_achieved count, DB={goal.waiting_for_not_achieved_count}, recalculated={waiting_for_not_achieved_count}")
+        print(f"Goal {goal.id} waiting_for_not_achieved count, DB={goal.waiting_for_not_achieved_count}, recalculated={waiting_for_not_achieved_count}")
         goal.waiting_for_not_achieved_count = waiting_for_not_achieved_count
         goal.save(update_fields=['waiting_for_not_achieved_count'])
 
     if waiting_for_failed_count != goal.waiting_for_failed_count:
-        print(f"Goal {goal_id} waiting_for_failed count, DB={goal.waiting_for_failed_count}, recalculated={waiting_for_failed_count}")
+        print(f"Goal {goal.id} waiting_for_failed count, DB={goal.waiting_for_failed_count}, recalculated={waiting_for_failed_count}")
         goal.waiting_for_failed_count = waiting_for_failed_count
         goal.save(update_fields=['waiting_for_failed_count'])
 
