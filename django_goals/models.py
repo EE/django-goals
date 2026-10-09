@@ -8,6 +8,7 @@ from typing import Callable, Iterable, Optional, cast
 
 from django.conf import settings
 from django.db import connections, models, transaction
+from django.db.models.lookups import GreaterThan
 from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
@@ -311,13 +312,23 @@ def _update_dependents(goal_ids: list[uuid.UUID], failed_delta: int) -> None:
     ).values('dependent_goal').annotate(count=models.Count('*'))
     for count in dependencies.values_list('count', flat=True).distinct():
         delta = failed_delta * count
+        waiting_for_count = models.Case(
+            models.When(proceed, then=models.F('waiting_for_count') - delta),
+            default=models.F('waiting_for_count'),
+        )
         Goal.objects.filter(
             id__in=dependencies.filter(count=count).values('dependent_goal'),
         ).update(
             waiting_for_failed_count=models.F('waiting_for_failed_count') + delta,
-            waiting_for_count=models.Case(
-                models.When(proceed, then=models.F('waiting_for_count') - delta),
-                default=models.F('waiting_for_count'),
+            waiting_for_count=waiting_for_count,
+            # A goal let go by failed preconditions waits for them again when they recover.
+            state=models.Case(
+                models.When(
+                    GreaterThan(waiting_for_count, 0),
+                    state=GoalState.WAITING_FOR_WORKER,
+                    then=models.Value(GoalState.WAITING_FOR_PRECONDITIONS),
+                ),
+                default=models.F('state'),
             ),
         )
 
