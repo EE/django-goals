@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from datetime import timedelta
 from typing import Iterator, cast
 
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import BaseCommand
 
 from django_goals.models import (
@@ -102,6 +104,10 @@ def threaded_worker(
     stop_event: threading.Event | None = None,
     once: bool = False,
 ) -> None:
+    if getattr(settings, 'GOALS_TIME_LIMIT_SECONDS', None) is not None:
+        # Otherwise every goal would fail: the limit is a SIGALRM, handled only in the main thread.
+        raise ImproperlyConfigured('GOALS_TIME_LIMIT_SECONDS works only in single-threaded workers')
+
     if stop_event is None:
         stop_event = threading.Event()
 

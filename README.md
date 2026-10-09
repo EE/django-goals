@@ -256,7 +256,7 @@ There are also management commands for operations work:
 
 `GOALS_MEMORY_LIMIT_MIB` - Maximum memory usage of a worker process. This is enforced using `resource` python module. Set to `None` to disable the limit. Default is `None`.
 
-`GOALS_TIME_LIMIT_SECONDS` - Maximum time a handler function can run. If the handler runs longer, a `TimesUp` exception is raised in it (via `SIGALRM`), which counts as a regular failure. Default is `None` (no limit).
+`GOALS_TIME_LIMIT_SECONDS` - Maximum time a handler function can run. If the handler runs longer, a `TimesUp` exception is raised in it (via `SIGALRM`), which counts as a regular failure. Python handles signals only in the main thread, so `goals_threaded_worker` refuses to start with this setting. Default is `None` (no limit).
 
 `GOALS_MIDDLEWARE` - List of middleware wrapping goal execution, analogous to Django's request middleware. Default is `['django_goals.pickups.Middleware', 'django_goals.models.FsckMiddleware']`. If you use Sentry, prepend `'django_goals.sentry.Middleware'` to get a `queue.process` transaction for every handler call.
 

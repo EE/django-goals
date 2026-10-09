@@ -11,8 +11,6 @@ Reproduced against 0.7.7.
   or an ANY-mode goal scheduling something after its precondition still being pursued.
   Postgres aborts one side after `deadlock_timeout`.
   Ways to fix it are under Decide.
-- `GOALS_TIME_LIMIT_SECONDS` makes the threaded worker fail every goal:
-  `signal.signal()` raises outside the main thread.
 
 ## Investigate
 
