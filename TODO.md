@@ -16,12 +16,21 @@ Reproduced against 0.7.7.
 
 - Picking gets expensive with dead index entries at the head of the queue
   (finding 1 in `database-load.md`).
+- `GOALS_MEMORY_LIMIT_MIB` in the threaded worker: the limit is per process,
+  so handler threads overwrite each other's,
+  and one can restore another's, leaving it on between handlers.
+- A blocking worker notified of a goal that someone else holds locked
+  (like `schedule()` adding it as a precondition) skips it and loses the notification,
+  so the goal waits until a busy or threaded worker polls.
 
 ## Decide
 
 - Retrying a `GIVEN_UP` goal allows a single attempt, because old failures still count.
-- ANY mode with BLOCK: one failed precondition blocks the goal
-  even when another one is achieved.
+- ANY mode with BLOCK, one precondition achieved and another one failed:
+  the goal is blocked or pursued depending on which transition runs first,
+  and when pursued, `FsckMiddleware` logs a waiting-for-failed bug.
+  Elsewhere ANY mode doesn't take a wake-up back, so pursuing it would fit,
+  and blocking only when all preconditions it still waits for failed.
 - Adding preconditions without waiting for locks.
   Like deadline propagation: skip locked preconditions,
   add their dependencies as not counted yet,
@@ -41,3 +50,6 @@ Reproduced against 0.7.7.
 - `NOTIFY` with a goal id in its text rules out prepared statements
   and adds a `pg_stat_statements` entry per goal (finding 3).
 - `test_memory_limit[256-True]` fails with `psycopg[binary]` installed.
+- A Hypothesis state machine test: random API calls and worker transitions,
+  with counters, `goals_fsck` and liveness checked after each step.
+  A prototype of it found most of the recent counter bugs.
