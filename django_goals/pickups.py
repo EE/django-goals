@@ -5,7 +5,7 @@ import threading
 import uuid
 
 from django.conf import settings
-from django.db import models
+from django.db import DatabaseError, close_old_connections, models
 from django.utils import timezone
 
 import django_goals
@@ -45,10 +45,15 @@ class PickupMonitorThread(threading.Thread):
             except queue.ShutDown:
                 break
 
-            if event == 'pickup':
-                GoalPickup.objects.create(goal_id=goal_id)
-            elif event == 'release':
-                GoalPickup.objects.filter(goal_id=goal_id).delete()
+            try:
+                if event == 'pickup':
+                    GoalPickup.objects.create(goal_id=goal_id)
+                elif event == 'release':
+                    GoalPickup.objects.filter(goal_id=goal_id).delete()
+            except DatabaseError:
+                # Losing an event is better than losing killer task detection.
+                logger.exception('Pickup monitor failed to record %s of goal %s', event, goal_id)
+                close_old_connections()  # reconnect next time, if the connection broke
 
         logger.info('Pickup monitor thread exiting')
 
