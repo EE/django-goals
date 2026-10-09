@@ -13,8 +13,6 @@ Reproduced against 0.7.7.
   Ways to fix it are under Decide.
 - `GOALS_TIME_LIMIT_SECONDS` makes the threaded worker fail every goal:
   `signal.signal()` raises outside the main thread.
-- `PickupMonitorThread` dies on the first database error,
-  silently disabling killer task detection.
 
 ## Investigate
 
