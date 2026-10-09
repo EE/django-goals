@@ -11,8 +11,8 @@ from .factories import GoalFactory
 from .models import (
     AllDone, Goal, GoalState, PreconditionFailureBehavior, PreconditionsMode,
     block_goal, handle_deadline_propagation, handle_unblocked_goals,
-    handle_waiting_for_failed_preconditions, handle_waiting_for_worker,
-    schedule, unblock_retry_goal,
+    handle_waiting_for_failed_preconditions, handle_waiting_for_preconditions,
+    handle_waiting_for_worker, schedule, unblock_retry_goal,
 )
 from .pickups import GoalPickup
 
@@ -63,6 +63,33 @@ def test_unblock_precondition_proceed_mode(mode: PreconditionsMode, expected_wai
     goal.refresh_from_db()
     assert goal.waiting_for_count == expected_waiting_for_count
     assert goal.waiting_for_failed_count == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('mode', 'expected_state', 'expected_waiting_for_count'),
+    [
+        (PreconditionsMode.ALL, GoalState.WAITING_FOR_PRECONDITIONS, 1),
+        (PreconditionsMode.ANY, GoalState.WAITING_FOR_WORKER, 0),  # a wake-up is not taken back
+    ],
+)
+def test_unblock_precondition_of_goal_waiting_for_worker(mode: PreconditionsMode, expected_state: GoalState, expected_waiting_for_count: int) -> None:
+    precond = GoalFactory.create(state=GoalState.WAITING_FOR_DATE)
+    goal = schedule(
+        noop,
+        precondition_goals=[precond],
+        preconditions_mode=mode,
+        precondition_failure_behavior=PreconditionFailureBehavior.PROCEED,
+    )
+    block_goal(precond.id)
+    handle_waiting_for_preconditions()
+    goal.refresh_from_db()
+    assert goal.state == GoalState.WAITING_FOR_WORKER
+
+    unblock_retry_goal(precond.id)
+    goal.refresh_from_db()
+    assert goal.state == expected_state
+    assert goal.waiting_for_count == expected_waiting_for_count
 
 
 @pytest.mark.django_db
